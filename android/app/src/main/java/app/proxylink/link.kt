@@ -413,10 +413,16 @@ object link {
     fun media(action: String): Boolean =
         send(JSONObject().put("type", "media.control").put("action", action))
 
-    fun sharetext(text: String): Boolean {
+    fun sharetext(ctx: Context, text: String, title: String = ""): Boolean {
         val t = text.trim()
+        if (t.isEmpty()) return false
         val kind = if (Patterns.WEB_URL.matcher(t).matches()) "link" else "text"
-        return send(JSONObject().put("type", "share.send").put("kind", kind).put("data", t))
+        val ok = send(JSONObject().put("type", "share.send").put("kind", kind).put("data", t).put("title", title))
+        if (ok) {
+            val now = System.currentTimeMillis()
+            history.add(ctx.applicationContext, entry(System.nanoTime(), now, false, kind, title.ifBlank { t.take(80) }, t, "", t.length.toLong()))
+        }
+        return ok
     }
 
     suspend fun sharefile(
@@ -424,10 +430,11 @@ object link {
         uri: android.net.Uri,
         onprogress: (Float) -> Unit = {},
     ): Boolean = withContext(Dispatchers.IO) {
+        val app = ctx.applicationContext
         val ws = socket ?: return@withContext false
         var name = "file"
         var size = -1L
-        ctx.contentResolver.query(uri, null, null, null, null)?.use { c ->
+        app.contentResolver.query(uri, null, null, null, null)?.use { c ->
             if (c.moveToFirst()) {
                 val n = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
                 val s = c.getColumnIndex(OpenableColumns.SIZE)
@@ -435,29 +442,56 @@ object link {
                 if (s >= 0 && !c.isNull(s)) size = c.getLong(s)
             }
         }
-        val input = ctx.contentResolver.openInputStream(uri) ?: return@withContext false
+        val mime = app.contentResolver.getType(uri).orEmpty()
+        val input = app.contentResolver.openInputStream(uri) ?: return@withContext false
         val id = fileid.getAndIncrement()
-        ws.send(JSONObject().put("type", "file.offer").put("id", id).put("name", name).put("size", size).toString())
-        onprogress(if (size > 0) 0f else -1f)
-        var sent = 0L
-        input.use { s ->
-            val buf = ByteArray(5 + chunk)
-            buf[0] = frame_file
-            ByteBuffer.wrap(buf, 1, 4).putInt(id)
-            while (true) {
-                val n = s.read(buf, 5, chunk)
-                if (n < 0) break
-                while (ws.queueSize() > 4_000_000L) {
+        val tid = transfers.start(name, false, size)
+        var state = "failed"
+        try {
+            ws.send(JSONObject().put("type", "file.offer").put("id", id).put("name", name).put("size", size).toString())
+            onprogress(if (size > 0) 0f else -1f)
+            var sent = 0L
+            var canceled = false
+            input.use { s ->
+                val buf = ByteArray(5 + chunk)
+                buf[0] = frame_file
+                ByteBuffer.wrap(buf, 1, 4).putInt(id)
+                while (true) {
+                    val n = s.read(buf, 5, chunk)
+                    if (n < 0) break
+                    if (transfers.canceled(tid)) {
+                        canceled = true
+                        break
+                    }
+                    while (ws.queueSize() > 4_000_000L) {
+                        if (socket !== ws) return@withContext false
+                        delay(5)
+                    }
                     if (socket !== ws) return@withContext false
-                    delay(5)
+                    ws.send(buf.toByteString(0, n + 5))
+                    sent += n
+                    transfers.progress(tid, sent)
+                    onprogress(if (size > 0) (sent.toFloat() / size).coerceAtMost(1f) else -1f)
                 }
-                if (socket !== ws) return@withContext false
-                ws.send(buf.toByteString(0, n + 5))
-                sent += n
-                onprogress(if (size > 0) (sent.toFloat() / size).coerceAtMost(1f) else -1f)
             }
+            if (canceled) {
+                ws.send(JSONObject().put("type", "file.cancel").put("id", id).toString())
+                state = "canceled"
+                return@withContext false
+            }
+            ws.send(JSONObject().put("type", "file.done").put("id", id).toString())
+            state = "done"
+            history.add(
+                app,
+                entry(
+                    System.nanoTime(), System.currentTimeMillis(), false,
+                    if (mime.startsWith("image/")) "image" else "file",
+                    name, uri.toString(), mime, if (size > 0) size else sent,
+                ),
+            )
+            true
+        } finally {
+            transfers.finish(tid, state)
         }
-        ws.send(JSONObject().put("type", "file.done").put("id", id).toString())
-        true
     }
 }

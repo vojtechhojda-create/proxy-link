@@ -63,4 +63,5 @@ proxylink is a high-performance, secure local bridge connecting Windows PC and A
 - [x] Start with Windows (tray toggle), runs hidden in the tray
 - [x] PC panel (window): audio both directions, volume, send text/links/files, settings, log
 - [x] Phone audio / microphone to PC
-- [x] Android UI redesign (icon colors, tabs)
+- [x] Android UI redesign (icon colors, tabs, inbox with previews, transfer progress)
+- [x] Send images from the browser as files, paste/drop into the panel, cancel transfers

@@ -13,7 +13,7 @@ async function notify(message) {
 
 async function send(kind, data, title) {
   if (!data) return;
-  const r = await rpc({ type: "send", kind, data, title: title || "" });
+  const r = await rpc({ type: "send", kind, data, title: title || "" }, kind === "image" ? 30000 : 3000);
   notify(r.ok ? "sent to phone" : r.error || "failed");
 }
 
@@ -22,6 +22,7 @@ api.runtime.onInstalled.addListener(() => {
     { id: "page", title: "send page to phone", contexts: ["page", "frame"] },
     { id: "link", title: "send link to phone", contexts: ["link"] },
     { id: "image", title: "send image to phone", contexts: ["image"] },
+    { id: "imagelink", title: "send image address to phone", contexts: ["image"] },
     { id: "selection", title: "send selection to phone", contexts: ["selection"] },
   ];
   api.contextMenus.removeAll().then(() => items.forEach((i) => api.contextMenus.create(i)));
@@ -34,6 +35,8 @@ api.contextMenus.onClicked.addListener((info, tab) => {
     case "link":
       return send("link", info.linkUrl, info.linkText);
     case "image":
+      return send("image", info.srcUrl, "image");
+    case "imagelink":
       return send("link", info.srcUrl, "image");
     case "selection":
       return send("text", info.selectionText, tab && tab.title);

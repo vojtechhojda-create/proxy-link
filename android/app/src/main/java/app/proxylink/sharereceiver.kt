@@ -68,6 +68,7 @@ class sharereceiver : ComponentActivity() {
                 listOfNotNull(IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java))
         }
         val text = intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString()
+        val subject = (intent.getStringExtra(Intent.EXTRA_SUBJECT) ?: intent.getStringExtra(Intent.EXTRA_TITLE)).orEmpty()
 
         setContent {
             proxytheme { sendcard(phase.intValue, progress.floatValue) }
@@ -87,7 +88,7 @@ class sharereceiver : ComponentActivity() {
                 phase.intValue = 0
             }
             var ok = true
-            if (!text.isNullOrBlank()) ok = link.sharetext(text)
+            if (!text.isNullOrBlank()) ok = link.sharetext(applicationContext, text, subject)
             val total = uris.size
             uris.forEachIndexed { i, u ->
                 val sent = link.sharefile(applicationContext, u) { f ->

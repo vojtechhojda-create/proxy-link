@@ -2,7 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
-import { join } from "node:path";
+import { extname, join } from "node:path";
 import QRCode from "qrcode";
 import { WebSocketServer, type WebSocket } from "ws";
 import { chanbus, chanre, type chanmsg } from "./chan.js";
@@ -44,8 +44,16 @@ function onext(ws: WebSocket) {
     if (m?.type === "status") return reply({ type: "status", pc: pcname, devices: devicelist() });
     if (m?.type !== "send") return;
 
-    let kind: "link" | "text" = m.kind === "link" ? "link" : "text";
     const data = typeof m.data === "string" ? m.data.slice(0, 100_000) : "";
+    if (m.kind === "image") {
+      const to = typeof m.device === "string" ? m.device : undefined;
+      api.sendimage(data, to).then(
+        (count) => reply({ type: "result", ok: count > 0, count, error: count ? undefined : "no phone connected" }),
+        (e) => reply({ type: "result", ok: false, error: String(e?.message ?? e) }),
+      );
+      return;
+    }
+    let kind: "link" | "text" = m.kind === "link" ? "link" : "text";
     const title = typeof m.title === "string" ? m.title.slice(0, 200) : "";
     const target = typeof m.device === "string" ? m.device : undefined;
     if (!data) return reply({ type: "result", ok: false, error: "empty" });
@@ -80,6 +88,15 @@ const statics: Record<string, [string, string]> = {
   "/panel.js": ["panel.js", "text/javascript; charset=utf-8"],
   "/panel.css": ["panel.css", "text/css; charset=utf-8"],
   "/logo.svg": ["logo.svg", "image/svg+xml"],
+};
+
+const imgmime: Record<string, string> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".bmp": "image/bmp",
 };
 
 const panels = new Set<WebSocket>();
@@ -162,6 +179,10 @@ function onpanel(ws: WebSocket) {
         return api.disconnect(m.device);
       case "settings":
         return api.setsettings(m);
+      case "recent.open":
+        return api.openrecent(m.id, false);
+      case "recent.reveal":
+        return api.openrecent(m.id, true);
       case "send.text": {
         const data = typeof m.data === "string" ? m.data.slice(0, 100_000) : "";
         if (!data) return;
@@ -238,6 +259,24 @@ export function startlocal(onerror: (e: NodeJS.ErrnoException) => void) {
 
   const server = createServer(async (req, res) => {
     if (!hostok(req.headers.host)) return void res.writeHead(403).end();
+    if (req.method === "GET" && req.url?.startsWith("/recv?")) {
+      const q = new URL(req.url, "http://localhost").searchParams;
+      const p = sessionsok.has(q.get("s") ?? "") ? api.recentpath(q.get("id")) : null;
+      const type = p ? imgmime[extname(p).toLowerCase()] : undefined;
+      if (!p || !type) return void res.writeHead(404).end();
+      try {
+        const body = await readFile(p);
+        res.writeHead(200, {
+          "content-type": type,
+          "cache-control": "no-store",
+          "x-content-type-options": "nosniff",
+          "content-security-policy": "sandbox; default-src 'none'",
+        });
+        return void res.end(body);
+      } catch {
+        return void res.writeHead(404).end();
+      }
+    }
     const st = req.method === "GET" && req.url ? statics[req.url.split("?")[0]] : undefined;
     if (st) {
       try {

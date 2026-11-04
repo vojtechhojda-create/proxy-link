@@ -149,3 +149,8 @@ export function openpanel(url: string, app: boolean) {
   p.unref();
   return true;
 }
+
+export function revealfile(p: string) {
+  if (process.platform !== "win32") return;
+  spawn("explorer.exe", [`/select,"${p}"`], { windowsVerbatimArguments: true, stdio: "ignore" }).unref();
+}

@@ -21,7 +21,7 @@ import kotlinx.coroutines.launch
 
 class proxyservice : Service() {
     private val player = audioplayer(this)
-    private val rx = incoming(this) { name, mime, uri -> savednotif(name, mime, uri) }
+    private val rx = incoming(this) { name, mime, uri, size -> savednotif(name, mime, uri, size) }
     private var nid = 100
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var wifilock: WifiManager.WifiLock? = null
@@ -31,6 +31,7 @@ class proxyservice : Service() {
     @Suppress("DEPRECATION")
     override fun onCreate() {
         super.onCreate()
+        history.load(applicationContext)
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(NotificationChannel("link", "connection", NotificationManager.IMPORTANCE_LOW))
         nm.createNotificationChannel(NotificationChannel("incoming", "from pc", NotificationManager.IMPORTANCE_DEFAULT))
@@ -53,7 +54,8 @@ class proxyservice : Service() {
         link.onmessage = { m ->
             when (m.optString("type")) {
                 "share.push" -> push(m.optString("kind"), m.optString("data"), m.optString("title"))
-                "file.offer" -> rx.offer(m.optInt("id", -1), m.optString("name"))
+                "file.offer" -> rx.offer(m.optInt("id", -1), m.optString("name"), m.optLong("size", -1))
+                "file.cancel" -> rx.cancel(m.optInt("id", -1))
                 "file.done" -> rx.done(m.optInt("id", -1))
                 else -> Unit
             }
@@ -113,6 +115,13 @@ class proxyservice : Service() {
 
     private fun push(kind: String, data: String, title: String) {
         if (data.isBlank()) return
+        history.add(
+            this,
+            entry(
+                System.nanoTime(), System.currentTimeMillis(), true, if (kind == "link") "link" else "text",
+                title.ifBlank { data.take(80) }, data, "", data.length.toLong(),
+            ),
+        )
         val id = nid++
         val url = kind == "link" && Uri.parse(data).scheme?.lowercase() in listOf("http", "https")
         val b = NotificationCompat.Builder(this, "incoming")
@@ -139,13 +148,27 @@ class proxyservice : Service() {
         getSystemService(NotificationManager::class.java).notify(id, b.build())
     }
 
-    private fun savednotif(name: String, mime: String, uri: Uri?) {
+    private fun savednotif(name: String, mime: String, uri: Uri?, size: Long) {
+        history.add(
+            this,
+            entry(
+                System.nanoTime(), System.currentTimeMillis(), true, if (mime.startsWith("image/")) "image" else "file",
+                name, uri?.toString().orEmpty(), mime, size,
+            ),
+        )
         val id = nid++
         val b = NotificationCompat.Builder(this, "incoming")
             .setSmallIcon(R.drawable.ic_link)
             .setContentTitle("received from pc")
             .setContentText(name)
             .setAutoCancel(true)
+        if (uri != null && mime.startsWith("image/")) {
+            val big = loadbitmap(this, uri, 1024)
+            if (big != null) {
+                b.setLargeIcon(loadbitmap(this, uri, 128))
+                b.setStyle(NotificationCompat.BigPictureStyle().bigPicture(big))
+            }
+        }
         if (uri != null) {
             b.setContentIntent(
                 PendingIntent.getActivity(

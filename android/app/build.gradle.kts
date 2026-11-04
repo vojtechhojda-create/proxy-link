@@ -4,8 +4,8 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-val appVersion = (findProperty("appVersion") as String?) ?: "1.4.0"
-val appCode = ((findProperty("appCode") as String?) ?: "4").toInt()
+val appVersion = (findProperty("appVersion") as String?) ?: "1.5.0"
+val appCode = ((findProperty("appCode") as String?) ?: "5").toInt()
 val keystoreFile: String? = System.getenv("KEYSTORE_FILE")
 
 android {

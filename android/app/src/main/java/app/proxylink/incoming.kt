@@ -14,9 +14,19 @@ import java.nio.ByteBuffer
 
 class incoming(
     private val ctx: Context,
-    private val onsaved: (name: String, mime: String, uri: Uri?) -> Unit,
+    private val onsaved: (name: String, mime: String, uri: Uri?, size: Long) -> Unit,
 ) {
-    private class tx(val name: String, val mime: String, val out: OutputStream, val uri: Uri?)
+    private class tx(
+        val name: String,
+        val mime: String,
+        val out: OutputStream,
+        val uri: Uri?,
+        val file: File?,
+        val tid: Long,
+        val size: Long,
+    ) {
+        var got = 0L
+    }
 
     private val active = HashMap<Int, tx>()
 
@@ -26,7 +36,7 @@ class incoming(
             .trim().take(120).ifEmpty { "file" }
 
     @Synchronized
-    fun offer(id: Int, rawname: String) {
+    fun offer(id: Int, rawname: String, size: Long) {
         if (id < 0 || active.containsKey(id) || active.size >= 8) return
         val name = safename(rawname)
         val mime = MimeTypeMap.getSingleton()
@@ -41,14 +51,14 @@ class incoming(
                 }
                 val uri = ctx.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, v) ?: return
                 val out = ctx.contentResolver.openOutputStream(uri) ?: return
-                active[id] = tx(name, mime, out, uri)
+                active[id] = tx(name, mime, out, uri, null, transfers.start(name, true, size), size)
             } else {
                 val dir = ctx.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: return
                 dir.mkdirs()
                 var f = File(dir, name)
                 var n = 1
                 while (f.exists()) f = File(dir, "${n++}_$name")
-                active[id] = tx(name, mime, FileOutputStream(f), null)
+                active[id] = tx(name, mime, FileOutputStream(f), null, f, transfers.start(name, true, size), size)
             }
         }
     }
@@ -58,6 +68,8 @@ class incoming(
         if (arr.size < 6 || arr[0] != 3.toByte()) return
         val t = active[ByteBuffer.wrap(arr, 1, 4).int] ?: return
         runCatching { t.out.write(arr, 5, arr.size - 5) }
+        t.got += (arr.size - 5).toLong()
+        transfers.progress(t.tid, t.got)
     }
 
     @Synchronized
@@ -71,12 +83,26 @@ class incoming(
                 )
             }
         }
-        onsaved(t.name, t.mime, t.uri)
+        transfers.finish(t.tid, "done")
+        onsaved(t.name, t.mime, t.uri, t.got)
+    }
+
+    private fun discard(t: tx, state: String) {
+        runCatching { t.out.close() }
+        if (t.uri != null) runCatching { ctx.contentResolver.delete(t.uri, null, null) }
+        t.file?.let { runCatching { it.delete() } }
+        transfers.finish(t.tid, state)
+    }
+
+    @Synchronized
+    fun cancel(id: Int) {
+        val t = active.remove(id) ?: return
+        discard(t, "canceled")
     }
 
     @Synchronized
     fun abort() {
-        active.values.forEach { runCatching { it.out.close() } }
+        active.values.forEach { discard(it, "failed") }
         active.clear()
     }
 }

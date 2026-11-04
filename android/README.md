@@ -9,9 +9,9 @@ text (json):
 - pc -> phone: auth.pair.ok {name} | auth.pair.pending | auth.pair.error/denied {code}
 - phone -> pc: audio.start {pid?} (pid = one app, omitted = all pc audio) | audio.stop ; pc -> phone: audio.config {rate, channels} (pcm s16le)
 - phone -> pc: media.control {action: play_pause|vol_up|vol_down|mute}
-- phone -> pc: share.send {kind: text|link, data}
+- phone -> pc: share.send {kind: text|link, data, title}
 - pc -> phone: share.push {kind: text|link, data, title}
-- both ways: file.offer {id, name, size} ... file.done {id}
+- both ways: file.offer {id, name, size} ... file.done {id} | file.cancel {id}
 - ping {t} -> pong {t}
 - phone -> pc: audio.up.start {rate, channels, source: mic|phone} | audio.up.stop ; pc -> phone: audio.up.stopped (pc side ended it)
 - pc -> phone: audio.stopped (pc stopped the stream started for this phone)
@@ -32,3 +32,6 @@ received files: downloads/proxylink
 ## twocode channel (chan.msg, ch = twocode)
 phone -> pc: {op: workspaces} | {op: run, id, workspace, task} | {op: stop, id}
 pc -> phone: {op: workspaces, items} | {op: run.start | run.out | run.done, id, ...}
+
+## app tabs
+audio (pc audio to phone, phone mic/audio to pc), control (media keys, send photos/files/clipboard/text), inbox (history of sent and received links, text, images, files with previews and transfer progress), tools (connection, twocode, dev tools).

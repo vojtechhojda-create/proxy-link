@@ -3,16 +3,17 @@ import { createPublicKey, randomBytes, verify } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { existsSync } from "node:fs";
 import { createServer } from "node:https";
-import { join } from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
+import { extname, join } from "node:path";
 import { WebSocket, WebSocketServer, type RawData } from "ws";
 import { audiohub, channels, rate } from "./audio.js";
 import { chanbus, chanre } from "./chan.js";
 import { tls } from "./cert.js";
 import { config, root, save } from "./config.js";
-import { receiver, sendfile } from "./files.js";
+import { receiver, safename, sendfile } from "./files.js";
 import { check, pcname } from "./pairing.js";
 import { frame_audio_up, frame_file_in, frame_file_out, port_phone } from "./protocol.js";
-import { askyesno, mediakey, openurl, setclipboard } from "./winsys.js";
+import { askyesno, mediakey, openfile, openurl, revealfile, setclipboard } from "./winsys.js";
 
 export const events = new EventEmitter();
 
@@ -44,6 +45,84 @@ events.on("info", (text: string) => {
   infolog.push({ t: Date.now(), text });
   if (infolog.length > 30) infolog.shift();
 });
+
+interface recentitem {
+  id: number;
+  name: string;
+  path: string;
+  time: number;
+  from: string;
+}
+
+const recent: recentitem[] = [];
+let recentid = 0;
+const imagexts = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"]);
+const isimage = (name: string) => imagexts.has(extname(name).toLowerCase());
+
+function remember(name: string, path: string, from: string) {
+  recent.unshift({ id: ++recentid, name, path, time: Date.now(), from });
+  if (recent.length > 20) recent.pop();
+}
+
+const imgtypes: Record<string, string> = {
+  "image/png": ".png",
+  "image/jpeg": ".jpg",
+  "image/gif": ".gif",
+  "image/webp": ".webp",
+  "image/bmp": ".bmp",
+};
+
+async function download(url: string): Promise<{ name: string; data: Buffer }> {
+  const u = new URL(url);
+  if (u.protocol !== "http:" && u.protocol !== "https:") throw new Error("bad url");
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 20_000);
+  try {
+    const res = await fetch(u, { signal: ctrl.signal, redirect: "follow", headers: { "user-agent": "proxylink" } });
+    if (!res.ok || !res.body) throw new Error(`http ${res.status}`);
+    const type = (res.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
+    const ext = imgtypes[type];
+    if (!ext) throw new Error("not an image");
+    const max = 25 * 1024 * 1024;
+    const chunks: Buffer[] = [];
+    let total = 0;
+    for await (const c of res.body as any) {
+      total += c.length;
+      if (total > max) throw new Error("image too large");
+      chunks.push(Buffer.from(c));
+    }
+    let base = "image";
+    try {
+      base = safename(decodeURIComponent(u.pathname.split("/").pop() ?? "").replace(/\.[a-z0-9]{1,5}$/i, "")) || "image";
+    } catch {}
+    return { name: base + ext, data: Buffer.concat(chunks) };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function sendbuffer(name: string, data: Buffer, target?: string): Promise<number> {
+  let n = 0;
+  for (const [ws, s] of sessions) {
+    if (target && s.id !== target) continue;
+    if (ws.readyState !== WebSocket.OPEN) continue;
+    const fid = fileid++;
+    ws.send(JSON.stringify({ type: "file.offer", id: fid, name, size: data.length }));
+    for (let o = 0; o < data.length; o += 32768) {
+      while (ws.bufferedAmount > 4_000_000 && ws.readyState === WebSocket.OPEN) await sleep(5);
+      if (ws.readyState !== WebSocket.OPEN) break;
+      const part = data.subarray(o, Math.min(o + 32768, data.length));
+      const out = Buffer.allocUnsafe(5 + part.length);
+      out[0] = frame_file_out;
+      out.writeInt32BE(fid, 1);
+      part.copy(out, 5);
+      ws.send(out);
+    }
+    ws.send(JSON.stringify({ type: "file.done", id: fid }));
+    n++;
+  }
+  return n;
+}
 
 const reply = (ws: WebSocket, o: object) => {
   if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(o));
@@ -179,6 +258,7 @@ function onconnection(ws: WebSocket, ip: string) {
       upgain: 1,
       rx: new receiver(config.downloaddir, (n, path) => {
         events.emit("info", `received ${n} from ${name}`);
+        remember(n, path, name);
         events.emit("received", path);
       }),
     });
@@ -337,11 +417,12 @@ function route(ws: WebSocket, s: session, raw: RawData, isbinary: boolean) {
     case "share.send": {
       const data = typeof m.data === "string" ? m.data.slice(0, 200_000) : "";
       if (!data) return;
+      const title = clean(m.title, 120);
       if (m.kind === "link" && config.openlinks && openurl(data)) {
-        events.emit("info", `opened link from ${s.name}`);
+        events.emit("info", `opened link from ${s.name}${title ? `: ${title}` : ""}`);
       } else {
         setclipboard(data);
-        events.emit("info", `${m.kind === "link" ? "link" : "text"} from ${s.name} copied`);
+        events.emit("info", `${m.kind === "link" ? "link" : "text"} from ${s.name} copied${title ? `: ${title}` : ""}`);
       }
       return;
     }
@@ -351,6 +432,9 @@ function route(ws: WebSocket, s: session, raw: RawData, isbinary: boolean) {
 
     case "file.done":
       return s.rx.done(m.id);
+
+    case "file.cancel":
+      return s.rx.cancel(m.id);
 
     default:
       return reply(ws, { type: "error", code: "unknown_type" });
@@ -407,10 +491,24 @@ export const api = {
         up: s.up ? { source: s.up.source } : null,
         upgain: s.upgain,
       })),
+      recent: recent.map((r) => ({ id: r.id, name: r.name, time: r.time, from: r.from, image: isimage(r.name) })),
       log: infolog.slice(-12),
     };
   },
   listapps: () => audio.list(),
+  recentpath(id: unknown): string | null {
+    return recent.find((r) => r.id === Number(id))?.path ?? null;
+  },
+  openrecent(id: unknown, reveal: boolean) {
+    const p = recent.find((r) => r.id === Number(id))?.path;
+    if (!p) return;
+    if (reveal) revealfile(p);
+    else openfile(p);
+  },
+  async sendimage(url: string, target?: string): Promise<number> {
+    const { name, data } = await download(url);
+    return sendbuffer(name, data, target);
+  },
   startdown(id: unknown, pid: unknown) {
     const s = byid(id);
     if (s) startdown(s, Number.isInteger(pid) && (pid as number) > 0 ? (pid as number) : null);

@@ -53,3 +53,8 @@ input[type=checkbox] { accent-color: var(--green); width: 16px; height: 16px; }
 .eq i:nth-child(3) { animation-delay: .4s; height: 55%; }
 .eq i:nth-child(4) { animation-delay: .1s; height: 100%; }
 @keyframes eq { from { transform: scaleY(.25); } to { transform: scaleY(1); } }
+.recent { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.rec { display: flex; align-items: center; gap: 12px; background: var(--surface); border-radius: 14px; padding: 10px 12px; }
+.rec img { width: 48px; height: 48px; object-fit: cover; border-radius: 10px; }
+.fileico { width: 48px; height: 48px; border-radius: 10px; background: var(--card); border: 1px solid var(--line); display: grid; place-items: center; font-size: 11px; color: var(--muted); }
+.rec .name { word-break: break-all; }

@@ -1,5 +1,5 @@
 import { createReadStream, createWriteStream, existsSync, mkdirSync, type WriteStream } from "node:fs";
-import { stat } from "node:fs/promises";
+import { stat, unlink } from "node:fs/promises";
 import { basename, join, parse } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { WebSocket } from "ws";
@@ -58,6 +58,14 @@ export class receiver {
     if (!t) return;
     this.active.delete(id as number);
     t.out.end(() => this.onsaved(basename(t.path), t.path));
+  }
+
+  cancel(id: unknown) {
+    const t = this.active.get(id as number);
+    if (!t) return;
+    this.active.delete(id as number);
+    t.out.destroy();
+    void unlink(t.path).catch(() => {});
   }
 
   abort() {

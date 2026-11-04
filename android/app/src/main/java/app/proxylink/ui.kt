@@ -18,6 +18,8 @@ import androidx.compose.foundation.interaction.InteractionSource
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -26,7 +28,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -42,6 +48,7 @@ import androidx.compose.ui.geometry.lerp
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 
 val colidle = Color(0xFF6B7280)
@@ -165,5 +172,36 @@ fun checkmark(color: Color, modifier: Modifier = Modifier) {
         val v = p.value
         drawLine(color, a, lerp(a, b, (v / 0.4f).coerceIn(0f, 1f)), w, StrokeCap.Round)
         if (v > 0.4f) drawLine(color, b, lerp(b, c, ((v - 0.4f) / 0.6f).coerceIn(0f, 1f)), w, StrokeCap.Round)
+    }
+}
+
+@Composable
+fun iconbutton(label: String, res: Int, onclick: () -> Unit, modifier: Modifier = Modifier) {
+    val src = remember { MutableInteractionSource() }
+    OutlinedButton(
+        onClick = onclick,
+        modifier = modifier.pressscale(src),
+        interactionSource = src,
+        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 12.dp),
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(painterResource(res), contentDescription = null, modifier = Modifier.size(24.dp))
+            Text(label, style = MaterialTheme.typography.labelMedium)
+        }
+    }
+}
+
+@Composable
+fun roundbutton(res: Int, desc: String, onclick: () -> Unit, big: Boolean = false) {
+    val src = remember { MutableInteractionSource() }
+    val m = Modifier.size(if (big) 68.dp else 52.dp).pressscale(src)
+    if (big) {
+        FilledIconButton(onClick = onclick, modifier = m, interactionSource = src) {
+            Icon(painterResource(res), contentDescription = desc, modifier = Modifier.size(32.dp))
+        }
+    } else {
+        FilledTonalIconButton(onClick = onclick, modifier = m, interactionSource = src) {
+            Icon(painterResource(res), contentDescription = desc)
+        }
     }
 }

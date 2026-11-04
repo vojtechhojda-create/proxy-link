@@ -60,6 +60,7 @@ class mainmodel(private val app: Application) : AndroidViewModel(app) {
                 }
             }
         }
+        history.load(app)
         connectsaved()
     }
 

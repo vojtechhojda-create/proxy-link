@@ -81,3 +81,10 @@ messages (channel `twocode`, `data`):
 - bridge: `{op:"workspaces", items:[{id,name,branch,dirty,tasks}]}`, `{op:"run.start"|"run.out"|"run.done", id, ...}`
 
 this is independent of the twocode app itself. a native adapter (reading its real project/terminal state) needs its api: send me a link to the docs or repo.
+
+## v1.5: links, images and files
+- panel: ctrl+v pastes an image, file or text into the window and sends it to the phone; dropping a link or file onto the drop zone does the same
+- panel: "received from phone" list with image previews, open and show in folder
+- zen extension: right click an image > "send image to phone" downloads it on the pc (http/https, images only, max 25 MB) and sends it as a file; "send image address to phone" sends just the link
+- cancel: either side can cancel a running file transfer, the partial file is deleted
+- links keep their page title (shown in logs and on the phone)

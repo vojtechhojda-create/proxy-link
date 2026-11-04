@@ -24,6 +24,9 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -88,6 +91,7 @@ private fun dashboard(model: mainmodel) {
     val req by model.scanrequest.collectAsState()
     val saved by model.saved.collectAsState()
     val state by link.state.collectAsState()
+    val uplink by link.uplink.collectAsState()
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var pendingmode by remember { mutableStateOf<String?>(null) }
 
@@ -185,10 +189,18 @@ private fun dashboard(model: mainmodel) {
         is linkstate.failed -> colerr
     }
     val pulsing = state is linkstate.working || (paired && (audioon))
-    val tabs = listOf("audio" to R.drawable.ic_nav_audio, "control" to R.drawable.ic_nav_control, "tools" to R.drawable.ic_nav_tools)
+    val tabs = listOf(
+        "audio" to R.drawable.ic_nav_audio,
+        "control" to R.drawable.ic_nav_control,
+        "inbox" to R.drawable.ic_nav_inbox,
+        "tools" to R.drawable.ic_nav_tools,
+    )
 
+    Box(
+        Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF16263D), MaterialTheme.colorScheme.background))),
+    ) {
     Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
+        containerColor = Color.Transparent,
         bottomBar = {
             if (paired) {
                 NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
@@ -209,7 +221,13 @@ private fun dashboard(model: mainmodel) {
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             if (paired) {
-                appheader(orb, pulsing, "connected: ${(state as linkstate.paired).pcname}")
+                appheader(
+                    orb, pulsing, "connected: ${(state as linkstate.paired).pcname}",
+                    buildList {
+                        if (audioon) add("pc audio on")
+                        if (uplink != null) add("sending audio")
+                    },
+                )
                 AnimatedContent(
                     targetState = tab,
                     transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(120)) },
@@ -218,6 +236,7 @@ private fun dashboard(model: mainmodel) {
                     when (t) {
                         0 -> audiotab(model, onuplink)
                         1 -> controltab(model)
+                        2 -> inboxtab()
                         else -> toolstab(model)
                     }
                 }
@@ -268,5 +287,6 @@ private fun dashboard(model: mainmodel) {
                 }
             }
         }
+    }
     }
 }

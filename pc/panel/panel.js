@@ -8,6 +8,7 @@ let inflight = 0;
 let waiters = {};
 let lastphones = "";
 let retry = 0;
+let lastrecent = "";
 
 function h(tag, props, ...kids) {
   const e = document.createElement(tag);
@@ -131,6 +132,25 @@ function phonecard(p) {
     downblock, upblock);
 }
 
+function renderrecent() {
+  const list = state.recent || [];
+  $("#recentcard").classList.toggle("hidden", list.length === 0);
+  const sig = JSON.stringify(list);
+  if (sig === lastrecent) return;
+  lastrecent = sig;
+  const s = encodeURIComponent(sessionStorage.getItem("session") || "");
+  $("#recent").replaceChildren(
+    ...list.map((r) =>
+      h("li", { class: "rec" },
+        r.image ? h("img", { src: `/recv?id=${r.id}&s=${s}`, alt: "" }) : h("span", { class: "fileico" }, "file"),
+        h("div", { class: "grow" }, h("div", { class: "name" }, r.name),
+          h("div", { class: "muted" }, `${r.from} - ${new Date(r.time).toLocaleTimeString()}`)),
+        h("button", { onclick: () => send({ type: "recent.open", id: r.id }) }, "open"),
+        h("button", { onclick: () => send({ type: "recent.reveal", id: r.id }) }, "show in folder")),
+    ),
+  );
+}
+
 function render() {
   if (!state) return;
   $("#pc").textContent = state.pc;
@@ -151,6 +171,7 @@ function render() {
     t.value = [...t.options].some((o) => o.value === cur) ? cur : "";
     $("#sendcard").classList.toggle("hidden", n === 0);
   }
+  renderrecent();
   $("#openlinks").checked = state.settings.openlinks;
   $("#openfiles").checked = state.settings.openfiles;
   $("#log").replaceChildren(...state.log.slice().reverse().map((l) => h("li", {}, `${new Date(l.t).toLocaleTimeString()}  ${l.text}`)));
@@ -196,7 +217,27 @@ $("#files").addEventListener("change", (e) => { upload([...e.target.files]); e.t
 const drop = $("#drop");
 for (const ev of ["dragenter", "dragover"]) drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("over"); });
 for (const ev of ["dragleave", "drop"]) drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("over"); });
-drop.addEventListener("drop", (e) => upload([...e.dataTransfer.files]));
+drop.addEventListener("drop", (e) => {
+  const files = [...e.dataTransfer.files];
+  if (files.length) return upload(files);
+  const t = (e.dataTransfer.getData("text/uri-list") || e.dataTransfer.getData("text/plain")).split("\n")[0].trim();
+  if (t) send({ type: "send.text", device: $("#target").value, data: t });
+});
+window.addEventListener("paste", (e) => {
+  const tag = document.activeElement && document.activeElement.tagName;
+  if (tag === "TEXTAREA" || tag === "INPUT" || !state || !state.phones.length) return;
+  const files = [...(e.clipboardData.files || [])];
+  if (files.length) {
+    e.preventDefault();
+    upload(files);
+    return;
+  }
+  const text = (e.clipboardData.getData("text/plain") || "").trim();
+  if (text) {
+    e.preventDefault();
+    send({ type: "send.text", device: $("#target").value, data: text });
+  }
+});
 window.addEventListener("dragover", (e) => e.preventDefault());
 window.addEventListener("drop", (e) => e.preventDefault());
 
