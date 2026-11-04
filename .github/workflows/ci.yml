@@ -7,7 +7,7 @@ on:
 
 jobs:
   pc:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: pc
@@ -32,7 +32,7 @@ jobs:
       - run: dotnet build pc/loopback -c Release
 
   android:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: android
@@ -42,7 +42,8 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
-      - uses: android-actions/setup-android@v3
+      - name: accept android sdk licenses
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
       - uses: gradle/actions/setup-gradle@v4
       - run: chmod +x gradlew
       - run: ./gradlew assembleDebug
