@@ -3,9 +3,12 @@
 proxylink is a high-performance, secure local bridge connecting Windows PC and Android devices over Wi-Fi/LAN with ultra-low latency.
 
 ---
-
 > [!IMPORTANT]
-> **Future Releases:** Please note that version 1.0.0 and all subsequent updates will not be open-source. Version 0.x will remain available under the original license.
+> **Změna distribuce a licenčních podmínek (v1.0.0):**
+> Nová verze softwaru je distribuována výhradně jako zkompilovaná komerční aplikace (`.exe` / `.app`) s uzavřeným zdrojovým kódem.
+>
+> Používání nové verze je **podmíněno placeným předplatným**. Starší verze (0.x) zůstávají dostupné jako open-source pod původní licencí.
+
 
 ---
 
