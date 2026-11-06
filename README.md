@@ -1,14 +1,31 @@
-# proxylink
+# ProxyLink
 
-proxylink is a high-performance, secure local bridge connecting Windows PC and Android devices over Wi-Fi/LAN with ultra-low latency.
+ProxyLink is a high-performance, secure local bridge connecting Windows PC and Android devices over Wi-Fi/LAN with ultra-low latency.
 
 ---
 > [!IMPORTANT]
-> **Změna distribuce a licenčních podmínek (v1.0.0):**
-> Nová verze softwaru je distribuována výhradně jako zkompilovaná komerční aplikace (`.exe` / `.app`) s uzavřeným zdrojovým kódem.
+> **Distribution & Licensing Update (v1.0.0):**
+> Newer versions of ProxyLink are distributed exclusively as compiled commercial applications (`.exe` / `.app`) under a proprietary closed-source license.
 >
-> Používání nové verze je **podmíněno placeným předplatným**. Starší verze (0.x) zůstávají dostupné jako open-source pod původní licencí.
+> Usage of v1.0.0+ requires an active subscription or a lifetime license key. Legacy releases (v0.x) remain open-source under their original permissive license.
 
+---
+
+## Licensing & Tiers
+
+ProxyLink is distributed as a single executable application (`.exe`). The core network capabilities are completely free for personal use, while advanced power-user, developer, and team features are unlocked via a license key or active subscription.
+
+### License Overview
+
+* **Core App (Free Tier):** Provided free of charge for personal P2P transfers and local synchronization.
+* **Paid Tiers (Pro / Developer / Teams):** Feature modules are governed by a **Proprietary End User License Agreement (EULA)** and activated upon key verification.
+
+| Tier | Price | Included Features |
+| :--- | :--- | :--- |
+| **ProxyLink Free** | **$0** / Free | Basic file transfer, shared clipboard, LAN transfer |
+| **ProxyLink Pro** | **$7** one-time <br> *or* **$1** / month | Transfer history, custom visual themes, desktop widgets, download resuming |
+| **ProxyLink Developer** | **$12** one-time <br> *or* **$2** / month | CLI access, Local API, webhooks, automation scripts |
+| **ProxyLink Teams** | **$4** / user / month | User roles & management permissions, audit logs, shared team clipboard *(includes Pro)* |
 
 ---
 
@@ -42,34 +59,4 @@ proxylink is a high-performance, secure local bridge connecting Windows PC and A
 - [x] **Auto-Reconnect & State Recovery**
   - [x] Silent auto-pair on startup using stored cryptographic keys (ECDSA P-256 in Android Keystore, Ed25519 is not available in Keystore below API 33)
   - [x] Network switch and sleep/wake recovery handling (retries for about 80 s)
-- [ ] **Clipboard & File Bridge**
-  - [x] Manual Clipboard sync (Send text to PC / Copy from PC)
-  - [ ] File transfer signal protocol (`file.offer`, `file.accept`, chunked transfer) — offer/chunks/done work, accept handshake missing
-- [x] **Developer Test Channel**
-  - [x] Built-in Ping/Pong latency measurement (phone: dev tools)
-  - [x] Echo test and local debug event logs
-
----
-
-## v1.2 — Ecosystem & Advanced Routing
-*Goal: App-specific audio routing and developer integrations.*
-
-- [x] **Per-App Audio Routing**
-  - [x] Application Loopback API support on Windows (stream only Spotify, Chrome, or game audio) — needs windows 10 20348+ / 11, untested on real hardware
-- [x] **Bluetooth Relay & Dual Output**
-  - [x] Android acting as a Bluetooth audio bridge for PCs lacking Bluetooth hardware (output chooser + buffer, pc keeps playing)
-- [x] **TwoCode Integration** (generic bridge, native adapter pending)
-  - [x] Generic developer channel (`ws://127.0.0.1:8788/dev`, channels, token)
-  - [x] Workspace bridge: projects, git branch, run named tasks with live output (`pc/twocode`)
-  - [ ] Native TwoCode adapter — needs TwoCode's API
-
----
-
-## Extras (not in the plan)
-- [x] Zen/Firefox extension (send page, link, image, selection to phone)
-- [x] PC -> phone push (links, text, files) with notifications
-- [x] Start with Windows (tray toggle), runs hidden in the tray
-- [x] PC panel (window): audio both directions, volume, send text/links/files, settings, log
-- [x] Phone audio / microphone to PC
-- [x] Android UI redesign (icon colors, tabs, inbox with previews, transfer progress)
-- [x] Send images from the browser as files, paste/drop into the panel, cancel transfers
+- [ ] **Clipboard & File Bridge
