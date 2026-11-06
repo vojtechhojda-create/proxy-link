@@ -4,6 +4,11 @@ proxylink is a high-performance, secure local bridge connecting Windows PC and A
 
 ---
 
+> [!IMPORTANT]
+> **Future Releases:** Please note that version 1.0.0 and all subsequent updates will not be open-source. Version 0.x will remain available under the original license.
+
+---
+
 ## v1.0 — MVP (Minimum Viable Product)
 *Goal: Establish core P2P connection, secure pairing, and basic audio/control streaming.*
 
