@@ -1,0 +1,14 @@
+node_modules/
+dist/
+state.json
+.gradle/
+build/
+local.properties
+.idea/
+*.iml
+release/
+
+*.jks
+*.keystore
+local.properties
+.env

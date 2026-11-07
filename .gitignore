@@ -1,8 +1,0 @@
-node_modules/
-dist/
-state.json
-.gradle/
-build/
-local.properties
-.idea/
-*.iml

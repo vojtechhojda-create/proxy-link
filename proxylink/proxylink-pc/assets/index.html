@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src data:">
+<title>proxylink</title>
+<style>
+:root{--bg:#040C24;--surface:#0C1D4D;--high:#14296A;--primary:#2A4BAA;--bright:#6E8FE0;--acc:#A3B16A;--text:#EAF0FB;--muted:#8E9BBE;--danger:#FF6B6B}
+*{box-sizing:border-box}
+body{margin:0;padding:20px;background:var(--bg);color:var(--text);font:14px/1.4 system-ui,sans-serif;display:flex;flex-direction:column;gap:14px}
+header{display:flex;align-items:center;gap:12px}
+h1{margin:0;font:600 26px Georgia,serif}
+h2{margin:0 0 8px;font-size:15px;font-weight:600}
+.card{background:var(--surface);border-radius:18px;padding:16px}
+.muted{color:var(--muted)}
+.code{font:600 38px ui-monospace,Consolas,monospace;letter-spacing:4px;margin:6px 0}
+.row{display:flex;gap:8px;align-items:center}
+.row>*{min-width:0}
+input[type=text]{flex:1;background:var(--high);border:0;border-radius:10px;padding:10px;color:var(--text);outline:none}
+button{background:var(--primary);color:var(--text);border:0;border-radius:10px;padding:9px 14px;cursor:pointer;font:inherit}
+button:hover{background:var(--bright)}
+button.ghost{background:var(--high)}
+.item{padding:8px 0;border-top:1px solid var(--high)}
+.item:first-child{border-top:0}
+.name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bar{height:6px;border-radius:3px;background:var(--high);margin:6px 0}
+.fill{height:100%;border-radius:3px;background:var(--acc);width:0}
+.failed{color:var(--danger)}
+label{display:flex;gap:8px;align-items:center}
+</style>
+</head>
+<body>
+<header>
+  <svg width="36" height="36" viewBox="0 0 100 100" aria-hidden="true">
+    <rect width="100" height="100" rx="30" fill="#0C1D4D"/>
+    <rect x="17" y="36" width="42" height="28" rx="14" fill="none" stroke="#A3B16A" stroke-width="8"/>
+    <rect x="41" y="36" width="42" height="28" rx="14" fill="none" stroke="#A3B16A" stroke-width="8"/>
+  </svg>
+  <h1>proxylink</h1>
+</header>
+
+<section class="card">
+  <div class="muted">pairing code</div>
+  <img id="qr" alt="pairing qr" width="150" height="150" style="border-radius:10px;display:block;margin:8px 0">
+  <div id="code" class="code">------</div>
+  <div class="row"><span class="muted" style="flex:1">scan the qr in the app, or enter the code</span><button id="newCode" class="ghost">new code</button></div>
+</section>
+
+<section class="card">
+  <h2>quick share (guest)</h2>
+  <div class="muted">a phone that is not paired can scan this, send one thing to this pc and is disconnected afterwards. valid 5 minutes, one use.</div>
+  <img id="gqr" alt="guest qr" width="150" height="150" style="border-radius:10px;display:block;margin:8px 0">
+</section>
+
+<section class="card">
+  <h2>network</h2>
+  <div class="muted">address used in the qr codes (pick the one on the same wi-fi or hotspot as the phone)</div>
+  <select id="ip" style="margin-top:8px;width:100%;background:#14296A;color:#EAF0FB;border:0;border-radius:10px;padding:10px"></select>
+</section>
+
+<section class="card"><h2>devices</h2><div id="devices" class="muted">none connected</div></section>
+<section class="card"><h2>transfers</h2><div id="transfers" class="muted">none yet</div></section>
+
+<section class="card">
+  <h2>send to phone</h2>
+  <div class="row"><input id="text" type="text" placeholder="text or link"><button id="sendText">send</button></div>
+  <div class="row" style="margin-top:8px"><button id="sendFile">send file...</button></div>
+</section>
+
+<section class="card">
+  <label><input id="strangers" type="checkbox"> allow requests from unpaired devices</label>
+  <div class="row" style="margin-top:10px"><button id="folder" class="ghost">open downloads folder</button></div>
+</section>
+
+<script src="ui.js"></script>
+</body>
+</html>
