@@ -53,6 +53,8 @@ object Notifier {
     }
 
     // something arrived (auto accepted or accepted by the user)
+    fun notifyReceived(ctx: Context, item: Item) = received(ctx, item)
+
     fun received(ctx: Context, item: Item) {
         if (Link.foreground || item.kind == "clip") return
         val id = counter++
@@ -76,7 +78,7 @@ object Notifier {
             else -> openApp(ctx)
         }
         val title = when (item.kind) {
-            "file" -> "file received from ${item.from}"
+            "file" -> if (item.type == "image") "image received from ${item.from}" else "file received from ${item.from}"
             "link" -> "link from ${item.from}"
             else -> "text from ${item.from}"
         }

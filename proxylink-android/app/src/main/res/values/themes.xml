@@ -1,7 +1,9 @@
 <resources>
+    <!-- static: window background and android 12+ splash use the brand palette -->
     <style name="Theme.Proxylink.Splash" parent="android:Theme.Material.NoActionBar">
-        <item name="android:windowBackground">#FF040C24</item>
-        <item name="android:statusBarColor">#FF040C24</item>
-        <item name="android:navigationBarColor">#FF010410</item>
+        <item name="android:windowBackground">@color/brand_bg</item>
+        <item name="android:windowSplashScreenBackground">@color/brand_bg</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">@color/ic_bg</item>
     </style>
 </resources>

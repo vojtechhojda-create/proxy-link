@@ -6,25 +6,44 @@ import android.net.nsd.NsdServiceInfo
 import android.net.wifi.WifiManager
 import java.net.Inet4Address
 
+// mdns discovery. the multicast lock is held only while discovery runs.
 class Discovery(ctx: Context) {
     private val nsd = ctx.getSystemService(NsdManager::class.java)
     private val lock = ctx.getSystemService(WifiManager::class.java)
         .createMulticastLock("proxylink").apply { setReferenceCounted(false) }
     private val queue = ArrayDeque<NsdServiceInfo>()
     private var busy = false
-    private lateinit var found: (Peer) -> Unit
+    private var listener: NsdManager.DiscoveryListener? = null
+    private var found: ((Peer) -> Unit)? = null
 
+    @Synchronized
     fun start(onFound: (Peer) -> Unit, onLost: (String) -> Unit) {
+        if (listener != null) return
         found = onFound
         lock.acquire()
-        nsd.discoverServices("_proxylink._tcp.", NsdManager.PROTOCOL_DNS_SD, object : NsdManager.DiscoveryListener {
+        val l = object : NsdManager.DiscoveryListener {
             override fun onServiceFound(s: NsdServiceInfo) { synchronized(queue) { queue.add(s) }; next() }
             override fun onServiceLost(s: NsdServiceInfo) = onLost(s.serviceName)
             override fun onDiscoveryStarted(t: String) {}
             override fun onDiscoveryStopped(t: String) {}
             override fun onStartDiscoveryFailed(t: String, e: Int) {}
             override fun onStopDiscoveryFailed(t: String, e: Int) {}
-        })
+        }
+        listener = l
+        try {
+            nsd.discoverServices("_proxylink._tcp.", NsdManager.PROTOCOL_DNS_SD, l)
+        } catch (e: Exception) {
+            stop()
+        }
+    }
+
+    @Synchronized
+    fun stop() {
+        val l = listener ?: return
+        listener = null
+        runCatching { nsd.stopServiceDiscovery(l) }
+        synchronized(queue) { queue.clear(); busy = false }
+        if (lock.isHeld) lock.release()
     }
 
     // nsd allows one resolve at a time
@@ -38,7 +57,7 @@ class Discovery(ctx: Context) {
                 val ip = (i.host as? Inet4Address)?.hostAddress
                 if (ip != null) {
                     val a = i.attributes
-                    found(Peer(
+                    found?.invoke(Peer(
                         key = i.serviceName,
                         id = a["id"]?.decodeToString() ?: "",
                         name = a["name"]?.decodeToString() ?: i.serviceName,

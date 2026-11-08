@@ -7,8 +7,3 @@ local.properties
 .idea/
 *.iml
 release/
-
-*.jks
-*.keystore
-local.properties
-.env

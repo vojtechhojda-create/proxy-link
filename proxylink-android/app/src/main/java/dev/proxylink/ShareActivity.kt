@@ -37,8 +37,11 @@ class ShareActivity : Activity() {
         val text = intent.getStringExtra(Intent.EXTRA_TEXT)
             ?: intent.getCharSequenceExtra(Intent.EXTRA_PROCESS_TEXT)?.toString()
 
-        if (uris.isNotEmpty()) uris.forEach { Link.sendFile(it, target) }
-        else if (!text.isNullOrBlank()) Link.sendText(text, target)
+        val previous = Link.targetId
+        Link.targetId = target?.id
+        if (uris.isNotEmpty()) uris.forEach { Link.sendFile(it) }
+        else if (!text.isNullOrBlank()) Link.sendText(text)
+        Link.targetId = previous
         Toast.makeText(this, "sent to ${target?.name ?: Link.pcName}", Toast.LENGTH_SHORT).show()
         finish()
     }

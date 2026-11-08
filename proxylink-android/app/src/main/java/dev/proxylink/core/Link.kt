@@ -43,13 +43,28 @@ import javax.net.ssl.X509TrustManager
 enum class LinkState { IDLE, CONNECTING, NEEDS_PAIR, CONNECTED }
 data class Peer(val key: String, val id: String, val name: String, val host: String, val port: Int, val fp: String = "")
 data class Other(val id: String, val name: String)   // another device connected to the same pc
+
+// one history entry. dir = "in" received, "out" sent
 data class Item(
-    val kind: String,
+    val kind: String,        // text | link | clip | file
     val text: String,
     val from: String,
     val ts: Long = System.currentTimeMillis(),
     val uri: String? = null,
-)
+    val id: String = UUID.randomUUID().toString(),
+    val dir: String = "in",
+    val size: Long = 0,
+    val mime: String = "",
+) {
+    // filter type: text | link | file | image
+    val type: String
+        get() = when {
+            kind == "file" && mime.startsWith("image/") -> "image"
+            kind == "clip" -> "text"
+            else -> kind
+        }
+}
+
 data class ShareReq(
     val sid: String,
     val kind: String,
@@ -58,6 +73,7 @@ data class ShareReq(
     val mime: String,
     val from: String = "",   // set when relayed from another phone
 )
+
 data class Transfer(
     val sid: String,
     val name: String,
@@ -69,7 +85,9 @@ data class Transfer(
     val who: String = "",
 )
 
-private class OutFile(val name: String, val size: Long, val mime: String, val stream: InputStream, val who: String)
+private class OutFile(
+    val name: String, val size: Long, val mime: String, val stream: InputStream, val who: String, val uri: String,
+)
 
 private class InFile(val req: ShareReq, val uri: Uri, val out: OutputStream) {
     val digest: MessageDigest = MessageDigest.getInstance("SHA-256")
@@ -83,6 +101,7 @@ object Link {
     lateinit var prefs: Prefs
     @Volatile var foreground = false   // set by MainActivity, notifications only while false
     private lateinit var app: Context
+    private lateinit var discovery: Discovery
     private val main = Handler(Looper.getMainLooper())
     private val io = Executors.newSingleThreadExecutor()          // incoming writes, keeps order
     private val sender = Executors.newCachedThreadPool()          // outgoing file pumps
@@ -116,8 +135,10 @@ object Link {
     private var guestToken: String? = null
     private var nonce = ""
     private var pcId = ""
+    private var helloName = ""
     private var clipHash = ""
     private var pingAt = 0L
+    private var autoSuppressed = false      // user disconnected on purpose: no auto connect until they connect again
     private val pendingText = HashMap<String, Item>()
     private val pendingFiles = HashMap<String, OutFile>()
     private val meta = HashMap<String, ShareReq>()
@@ -129,12 +150,15 @@ object Link {
     var pcName by mutableStateOf(""); private set
     var autoSync by mutableStateOf(true); private set
     var latency by mutableStateOf(-1L); private set
+    var reconnecting by mutableStateOf<String?>(null); private set   // paired device id we are searching for
+    var targetId by mutableStateOf<String?>(null)                    // null = the pc, otherwise another device via pc
     val peers = mutableStateListOf<Peer>()
     val others = mutableStateListOf<Other>()
-    val received = mutableStateListOf<Item>()
-    val sent = mutableStateListOf<Item>()
+    val known = mutableStateListOf<KnownDevice>()
     val requests = mutableStateListOf<ShareReq>()
     val transfers = mutableStateMapOf<String, Transfer>()
+
+    val target: Other? get() = others.firstOrNull { it.id == targetId }
 
     private val pinger = object : Runnable {
         override fun run() {
@@ -155,32 +179,45 @@ object Link {
         app = ctx.applicationContext
         prefs = Prefs(app)
         autoSync = prefs.autoSync
+        History.init(app)
         Notifier.init(app)
-        Discovery(app).start(
-            onFound = { p -> main.post {
-                peers.removeAll { it.key == p.key }
-                peers.add(p)
-                if (state == LinkState.IDLE && prefs.secret(p.id) != null) connect(p)
-            } },
-            onLost = { k -> main.post { peers.removeAll { it.key == k } } },
-        )
+        discovery = Discovery(app)
+        refreshKnown()
+        startDiscovery()
         main.postDelayed(pinger, 5000)
     }
 
- fun changeAutoSync(v: Boolean) { 
-    autoSync = v 
-    prefs.autoSync = v 
- }
+    private fun startDiscovery() {
+        discovery.start(
+            onFound = { p -> main.post {
+                peers.removeAll { it.key == p.key }
+                peers.add(p)
+                val paired = prefs.secret(p.id) != null
+                val wanted = reconnecting == p.id || (prefs.autoConnect && !autoSuppressed)
+                if (state == LinkState.IDLE && paired && wanted) connect(p)
+            } },
+            onLost = { k -> main.post { peers.removeAll { it.key == k } } },
+        )
+    }
+
+    private fun refreshKnown() {
+        known.clear()
+        known.addAll(prefs.knownDevices().sortedByDescending { it.lastConnected })
+    }
+
+    fun changeAutoSync(v: Boolean) { autoSync = v; prefs.autoSync = v }
 
     private fun go(s: LinkState) {
         state = s
-        if (s != LinkState.CONNECTED) { latency = -1; others.clear() }
+        if (s != LinkState.CONNECTED) { latency = -1; others.clear(); targetId = null }
         if (s == LinkState.IDLE) guest = false
+        if (s == LinkState.CONNECTED) { reconnecting = null; discovery.stop(); peers.clear() } else startDiscovery()
         listeners.forEach { it(s) }
         if (this::app.isInitialized) Shortcuts.publish(app, pcName, others.toList())
     }
 
     fun connect(p: Peer, pairCode: String? = null, guestTok: String? = null) {
+        autoSuppressed = false
         ws?.close(1000, null)
         abortTransfers()
         peer = p; code = pairCode; guestToken = guestTok
@@ -203,13 +240,43 @@ object Link {
     }
 
     fun disconnect() {
+        autoSuppressed = true
         peer = null
         ws?.close(1000, null); ws = null
         abortTransfers()
         go(LinkState.IDLE)
     }
 
-    // qr payloads
+    // ---- paired devices: reconnect and forget ----
+
+    // connect to the remembered device as soon as it is in range
+    fun reconnect(id: String) {
+        if (state == LinkState.CONNECTED || state == LinkState.CONNECTING) return
+        autoSuppressed = false
+        val p = peers.firstOrNull { it.id == id }
+        if (p != null) connect(p) else reconnecting = id
+    }
+
+    fun cancelReconnect() { reconnecting = null }
+
+    fun forget(id: String) {
+        if (peer?.id == id || pcId == id) disconnect()
+        if (reconnecting == id) reconnecting = null
+        prefs.forget(id)
+        refreshKnown()
+    }
+
+    fun connectPaired() {
+        if (state == LinkState.CONNECTED || state == LinkState.CONNECTING) return
+        val inRange = peers.firstOrNull { prefs.secret(it.id) != null }
+        if (inRange != null) reconnect(inRange.id) else known.firstOrNull()?.let { reconnect(it.id) }
+    }
+
+    fun toggle() {
+        if (state == LinkState.CONNECTED || state == LinkState.CONNECTING) disconnect() else connectPaired()
+    }
+
+    // qr / nfc payloads
     //   proxylink://pair?h=<ip>&p=<port>&c=<code>&f=<sha256>&i=<pc id>&n=<name>
     //   proxylink://guest?h=<ip>&p=<port>&t=<token>&f=<sha256>&n=<name>
     fun pairFromQr(raw: String): Boolean {
@@ -239,15 +306,6 @@ object Link {
         }
     }
 
-    fun connectPaired() {
-        if (state == LinkState.CONNECTED || state == LinkState.CONNECTING) return
-        peers.firstOrNull { prefs.secret(it.id) != null }?.let { connect(it) }
-    }
-
-    fun toggle() {
-        if (state == LinkState.CONNECTED || state == LinkState.CONNECTING) disconnect() else connectPaired()
-    }
-
     private fun dropped() {
         abortTransfers()
         if (guest) {                 // guest tokens are one-time, never reconnect
@@ -266,12 +324,13 @@ object Link {
         when (m.getString("t")) {
             "hello" -> {
                 nonce = m.getString("nonce"); pcId = m.getString("id")
+                helloName = m.optString("name").ifBlank { pcName }
                 val o = mutableMapOf<String, Any>("t" to "hello", "id" to prefs.id, "name" to prefs.name)
                 prefs.secret(pcId)?.let { o["mac"] = hmac(it, nonce) }
                 tx(o)
             }
             "ready" -> when {
-                m.getBoolean("trusted") -> { go(LinkState.CONNECTED); pushClipboard() }
+                m.getBoolean("trusted") -> { paired(); go(LinkState.CONNECTED); pushClipboard() }
                 code != null -> tx(mapOf("t" to "pair.req", "code" to code!!))
                 guestToken != null -> tx(mapOf("t" to "guest.req", "token" to guestToken!!))
                 else -> go(LinkState.NEEDS_PAIR)
@@ -279,7 +338,7 @@ object Link {
             "pair.ok" -> {
                 prefs.setSecret(pcId, m.getString("secret"))
                 if (expectedFp.isNotEmpty()) prefs.setPin(pcId, expectedFp)
-                code = null; go(LinkState.CONNECTED); pushClipboard()
+                code = null; paired(); go(LinkState.CONNECTED); pushClipboard()
             }
             "pair.fail" -> { code = null; pairError = true; go(LinkState.NEEDS_PAIR) }
             "guest.ok" -> { guestToken = null; guest = true; go(LinkState.CONNECTED) }
@@ -291,6 +350,7 @@ object Link {
                     val o = arr.getJSONObject(i)
                     others.add(Other(o.getString("id"), o.getString("name")))
                 }
+                if (targetId != null && others.none { it.id == targetId }) targetId = null
                 Shortcuts.publish(app, pcName, others.toList())
             }
             "pong" -> latency = SystemClock.elapsedRealtime() - pingAt
@@ -307,15 +367,18 @@ object Link {
                 else { requests.add(r); Notifier.request(app, r, pcName) }
             }
             "share.text" -> meta.remove(m.getString("sid"))?.let {
-                val item = Item(m.optString("kind", it.kind), m.getString("text"), it.from.ifBlank { pcName })
-                received.add(0, item)
+                val item = Item(
+                    m.optString("kind", it.kind), m.getString("text"), it.from.ifBlank { pcName },
+                    dir = "in", size = m.getString("text").length.toLong(),
+                )
+                History.add(item)
                 Notifier.received(app, item)
             }
             "share.accept" -> {
                 val sid = m.getString("sid")
                 pendingText.remove(sid)?.let {
                     tx(mapOf("t" to "share.text", "sid" to sid, "kind" to it.kind, "text" to it.text))
-                    sent.add(0, it)
+                    History.add(it)
                 }
                 pendingFiles.remove(sid)?.let { startPump(sid, it) }
             }
@@ -332,7 +395,9 @@ object Link {
                 val ok = m.optBoolean("ok")
                 transfers[sid]?.let { t ->
                     transfers[sid] = t.copy(status = if (ok) "done" else "failed", bytes = if (ok) t.size else t.bytes)
-                    if (ok) sent.add(0, Item("file", t.name, prefs.name))
+                    if (ok) outMeta.remove(sid)?.let { (uri, mime) ->
+                        History.add(Item("file", t.name, prefs.name, uri = uri, dir = "out", size = t.size, mime = mime))
+                    }
                 }
             }
             "clip.update" -> if (autoSync && !guest) {
@@ -341,11 +406,21 @@ object Link {
                     clipHash = sha(t)
                     app.getSystemService(ClipboardManager::class.java)
                         .setPrimaryClip(ClipData.newPlainText("proxylink", t))
-                    received.add(0, Item("clip", t, pcName))
+                    History.add(Item("clip", t, pcName, dir = "in", size = t.length.toLong()))
                 }
             }
         }
     }
+
+    // remembers the paired device (not guests)
+    private fun paired() {
+        if (guest || pcId.isEmpty()) return
+        if (helloName.isNotBlank()) pcName = helloName
+        prefs.remember(pcId, pcName)
+        refreshKnown()
+    }
+
+    private val outMeta = HashMap<String, Pair<String, String>>()   // sid -> (uri, mime) of files sent
 
     // ---- incoming ----
 
@@ -412,52 +487,68 @@ object Link {
         val who = f.req.from.ifBlank { "pc" }
         setTransfer(sid, f.req.name, f.req.size, f.bytes, false, if (ok) "done" else "failed", who)
         if (ok) main.post {
-            val item = Item("file", f.req.name, f.req.from.ifBlank { pcName }, uri = f.uri.toString())
-            received.add(0, item)
-            Notifier.received(app, item)
+            val item = Item(
+                "file", f.req.name, f.req.from.ifBlank { pcName },
+                uri = f.uri.toString(), dir = "in", size = f.req.size, mime = f.req.mime,
+            )
+            History.add(item)
+            Notifier.notifyReceived(app, item)
         }
     }
 
-    // ---- outgoing (to = null means the pc, otherwise relayed by the pc to that device) ----
+    // ---- outgoing (target = null means the pc, otherwise relayed by the pc to that device) ----
 
-    fun sendText(text: String, to: Other? = null) {
+    fun sendText(text: String) {
         if (state != LinkState.CONNECTED || text.isBlank()) return
         val sid = UUID.randomUUID().toString()
         val kind = if (text.startsWith("http://") || text.startsWith("https://")) "link" else "text"
-        pendingText[sid] = Item(kind, text, prefs.name)
+        pendingText[sid] = Item(kind, text, prefs.name, dir = "out", size = text.length.toLong())
         val m = mutableMapOf<String, Any>(
             "t" to "share.request", "sid" to sid, "kind" to kind, "name" to text.take(40), "size" to text.length,
         )
-        to?.let { m["to"] = it.id }
+        target?.let { m["to"] = it.id }
         tx(m)
     }
 
-    // opens the stream immediately so a share-sheet uri permission can expire afterwards
-    fun sendFile(uri: Uri, to: Other? = null) {
-        if (state != LinkState.CONNECTED) return
+    // opens the stream immediately so a share-sheet uri permission can expire afterwards. false = not sent
+    fun sendFile(uri: Uri): Boolean {
+        if (state != LinkState.CONNECTED) return false
         val cr = app.contentResolver
         var name = "file"
         var size = -1L
-        cr.query(uri, null, null, null, null)?.use { c ->
-            if (c.moveToFirst()) {
-                val ni = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                if (ni >= 0) name = c.getString(ni) ?: name
-                val si = c.getColumnIndex(OpenableColumns.SIZE)
-                if (si >= 0 && !c.isNull(si)) size = c.getLong(si)
+        runCatching {
+            cr.query(uri, null, null, null, null)?.use { c ->
+                if (c.moveToFirst()) {
+                    val ni = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (ni >= 0) name = c.getString(ni) ?: name
+                    val si = c.getColumnIndex(OpenableColumns.SIZE)
+                    if (si >= 0 && !c.isNull(si)) size = c.getLong(si)
+                }
             }
         }
-        val stream = runCatching { cr.openInputStream(uri) }.getOrNull() ?: return
+        val stream = runCatching { cr.openInputStream(uri) }.getOrNull() ?: return false
         if (size < 0) size = runCatching { stream.available().toLong() }.getOrDefault(0L)
         val sid = UUID.randomUUID().toString()
         val mime = cr.getType(uri) ?: "application/octet-stream"
-        val who = to?.name ?: "pc"
-        pendingFiles[sid] = OutFile(name, size, mime, stream, who)
+        val who = target?.name ?: "pc"
+        pendingFiles[sid] = OutFile(name, size, mime, stream, who, uri.toString())
+        outMeta[sid] = uri.toString() to mime
         setTransfer(sid, name, size, 0, true, "waiting", who)
         val m = mutableMapOf<String, Any>(
             "t" to "share.request", "sid" to sid, "kind" to "file", "name" to name, "size" to size, "mime" to mime,
         )
-        to?.let { m["to"] = it.id }
+        target?.let { m["to"] = it.id }
         tx(m)
+        return true
+    }
+
+    // send a history entry again. false = the file is gone
+    fun resend(item: Item): Boolean {
+        if (state != LinkState.CONNECTED) return false
+        return when (item.kind) {
+            "file" -> item.uri?.let { runCatching { sendFile(Uri.parse(it)) }.getOrDefault(false) } ?: false
+            else -> { sendText(item.text); true }
+        }
     }
 
     private fun startPump(sid: String, f: OutFile) {
@@ -514,7 +605,7 @@ object Link {
 
     private fun abortTransfers() {
         pendingFiles.values.forEach { runCatching { it.stream.close() } }
-        pendingFiles.clear(); pendingText.clear(); meta.clear(); requests.clear()
+        pendingFiles.clear(); pendingText.clear(); meta.clear(); requests.clear(); outMeta.clear()
         val live = incoming.values.toList()
         incoming.clear()
         if (live.isNotEmpty()) io.execute {
@@ -534,13 +625,20 @@ object Link {
         if (state != LinkState.CONNECTED || guest || (!manual && !autoSync)) return
         val cm = app.getSystemService(ClipboardManager::class.java)
         val clip = cm.primaryClip?.takeIf { it.itemCount > 0 } ?: return
-        val t = clip.getItemAt(0).coerceToText(app)?.toString().orEmpty()
+        val first = clip.getItemAt(0)
+        // an image in the clipboard is sent as a file, only when the user asks
+        val imageUri = first.uri
+        if (imageUri != null && clip.description.hasMimeType("image/*")) {
+            if (manual) sendFile(imageUri)
+            return
+        }
+        val t = first.coerceToText(app)?.toString().orEmpty()
         if (t.isEmpty()) return
         val h = sha(t)
         if (!manual && h == clipHash) return
         clipHash = h
         tx(mapOf("t" to "clip.update", "ts" to System.currentTimeMillis(), "hash" to h, "text" to t.take(100_000)))
-        sent.add(0, Item("clip", t, prefs.name))
+        History.add(Item("clip", t, prefs.name, dir = "out", size = t.length.toLong()))
     }
 
     private fun safe(n: String) = n.replace(Regex("[\\\\/:*?\"<>|]"), "_").take(120).ifBlank { "file" }
