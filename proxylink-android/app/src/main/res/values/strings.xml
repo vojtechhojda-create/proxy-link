@@ -114,7 +114,7 @@
     <string name="clip_send">send clipboard automatically</string>
     <string name="clip_send_desc">while the app is open, text you copy goes to the connected device</string>
     <string name="clip_receive">receive clipboard automatically</string>
-    <string name="clip_receive_desc">text from the connected device is put into this phone's clipboard</string>
+    <string name="clip_receive_desc">text from the connected device is put into this phone\'s clipboard</string>
     <string name="clip_pause">pause</string>
     <string name="clip_pause_15">15 min</string>
     <string name="clip_pause_1h">1 h</string>
