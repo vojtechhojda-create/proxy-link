@@ -3,12 +3,12 @@
 backlog a stav požadavků. soubor vznikl v tomto kroku; dříve v repozitáři nebyl. stav = plánováno / rozpracováno / implementováno (neověřeno) / ověřeno. nic zde není "ověřeno", dokud neproběhl test na zařízení.
 
 ## stav podle priorit
-1. dlaždice rychlého nastavení: implementováno (neověřeno), viz PROJECT_STATUS.md
-2. reconnect známých zařízení: implementováno (neověřeno buildem ani na telefonu); chybí test po restartu, výpadku a návratu sítě
-3. hierarchie a trvalé ukládání nastavení: rozpracováno; podstránky hotové v kódu, chybí resources cs/en, výjimky zařízení, skrývání vypnutých funkcí
-4. schránka: plánováno (jen vypínač synchronizace za běhu aplikace existuje)
-5. přenosy, náhledy, kvalita obrázků: plánováno
-6. nfc: plánováno
+1. dlaždice rychlého nastavení: implementováno, build prošel; na telefonu neověřeno, viz PROJECT_STATUS.md
+2. reconnect známých zařízení: implementováno, build prošel; na telefonu neověřeno (restart, výpadek a návrat sítě)
+3. hierarchie a trvalé ukládání nastavení: rozpracováno; podstránky a texty cs/en v nastavení hotové v kódu; chybí výjimky zařízení, skrývání vypnutých funkcí, volba jazyka v aplikaci, texty zbytku aplikace v resources
+4. schránka: rozpracováno; implementováno (neověřeno): oddělené odesílání a příjem, pauza, citlivý obsah, volitelná historie (výchozí vypnuto), stav a důvod nečinnosti. chybí: cílová zařízení, limit a doba uchování historie
+5. přenosy, náhledy, kvalita obrázků: rozpracováno; kvalita obrázků (originál / vysoká / úsporná) implementována (neověřeno). plánováno: náhledy, konflikt názvu, limit auto-příjmu, otevření po přijetí, volby vlastní a vždy se zeptat
+6. nfc: rozpracováno; hotové jen potvrzení odkazů z nfc štítku a skener qr s explicitním odesláním souboru (build neproběhl). nfc obrazovka (reader mode, stavy, timeout, potvrzení) implementována (neověřeno). plánováno: hce pro opačný směr. BLOKOVÁNO: přímé posílání telefon–telefon přes nfc + wi-fi/hotspot vyžaduje serverovou část v telefonu (tls, párování, protokol) = nový transport, potřebuje návrh a souhlas; qr kód telefonu pro opačný směr vyžaduje čtečku qr v pc aplikaci (pc se nemění)
 7. vzhled, ikony, oznámení, diagnostika: rozpracováno; ikona podle palety implementována (neověřeno), diagnostika základní
 8. licence a dokumentace: plánováno; README zatím neaktualizováno
 

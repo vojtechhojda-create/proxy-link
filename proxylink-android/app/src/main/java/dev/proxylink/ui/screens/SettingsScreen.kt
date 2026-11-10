@@ -16,6 +16,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
+import dev.proxylink.R
 import dev.proxylink.core.Link
 import dev.proxylink.ui.components.NavRow
 import dev.proxylink.ui.components.Panel
@@ -30,25 +32,25 @@ fun SettingsScreen(onOpen: (String) -> Unit) {
         Modifier.fillMaxSize().verticalScrollCompat().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        ScreenHeader("settings")
+        ScreenHeader(stringResource(R.string.settings))
         Panel {
-            NavRow("devices", Icons.Default.Devices, "${Link.known.size}") { onOpen("devices") }
+            NavRow(stringResource(R.string.title_devices), Icons.Default.Devices, "${Link.known.size}") { onOpen("devices") }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            NavRow("connection", Icons.Default.Wifi) { onOpen("connection") }
+            NavRow(stringResource(R.string.title_connection), Icons.Default.Wifi) { onOpen("connection") }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            NavRow("appearance", Icons.Default.Palette, if (PaletteStore.dynamic) "system" else PaletteStore.current.label) { onOpen("appearance") }
+            NavRow(stringResource(R.string.title_appearance), Icons.Default.Palette, if (PaletteStore.dynamic) stringResource(R.string.system) else PaletteStore.current.label) { onOpen("appearance") }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            NavRow("clipboard", Icons.Default.ContentPaste) { onOpen("clipboard") }
+            NavRow(stringResource(R.string.title_clipboard), Icons.Default.ContentPaste) { onOpen("clipboard") }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            NavRow("transfers", Icons.Default.SwapVert) { onOpen("transfers") }
+            NavRow(stringResource(R.string.title_transfers), Icons.Default.SwapVert) { onOpen("transfers") }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            NavRow("notifications and control", Icons.Default.Notifications) { onOpen("notifications") }
+            NavRow(stringResource(R.string.title_notifications), Icons.Default.Notifications) { onOpen("notifications") }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            NavRow("privacy and security", Icons.Default.Lock) { onOpen("privacy") }
+            NavRow(stringResource(R.string.title_privacy), Icons.Default.Lock) { onOpen("privacy") }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            NavRow("diagnostics", Icons.Default.BugReport) { onOpen("diagnostics") }
+            NavRow(stringResource(R.string.title_diagnostics), Icons.Default.BugReport) { onOpen("diagnostics") }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            NavRow("about", Icons.Default.Info) { onOpen("about") }
+            NavRow(stringResource(R.string.title_about), Icons.Default.Info) { onOpen("about") }
         }
     }
 }

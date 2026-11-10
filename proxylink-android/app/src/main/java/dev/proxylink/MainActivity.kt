@@ -13,11 +13,16 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import dev.proxylink.core.Link
 import dev.proxylink.core.LauncherIcon
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import dev.proxylink.ui.components.PairLinkDialog
 import dev.proxylink.ui.nav.ProxylinkApp
 import dev.proxylink.ui.theme.PaletteStore
 import dev.proxylink.ui.theme.ProxylinkTheme
 
 class MainActivity : ComponentActivity() {
+    private var pendingLink by mutableStateOf<Link.LinkInfo?>(null)
     private val notifPerm = registerForActivityResult(ActivityResultContracts.RequestPermission()) { startLink() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -30,7 +35,14 @@ class MainActivity : ComponentActivity() {
             statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
         )
-        setContent { ProxylinkTheme { ProxylinkApp() } }
+        setContent {
+            ProxylinkTheme {
+                ProxylinkApp()
+                pendingLink?.let { info ->
+                    PairLinkDialog(info, onConfirm = { Link.connectTo(info); pendingLink = null }, onCancel = { pendingLink = null })
+                }
+            }
+        }
 
         // a proxylink:// link or nfc tag that started the app
         if (savedInstanceState == null) handleLink(intent)
@@ -48,9 +60,10 @@ class MainActivity : ComponentActivity() {
     private fun handleLink(i: Intent?) {
         val data = i?.data ?: return
         if (data.scheme != "proxylink") return
-        if (!Link.pairFromQr(data.toString())) {
-            Toast.makeText(this, "not a valid pairing link", Toast.LENGTH_SHORT).show()
-        }
+        // a tag or a link from another app never pairs by itself, the user has to confirm it
+        val info = Link.parseLink(data.toString())
+        if (info == null) Toast.makeText(this, R.string.invalid_pairing_link, Toast.LENGTH_SHORT).show()
+        else pendingLink = info
     }
 
     private fun startLink() {

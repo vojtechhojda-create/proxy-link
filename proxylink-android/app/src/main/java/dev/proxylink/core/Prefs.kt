@@ -32,10 +32,29 @@ class Prefs(ctx: Context) {
         get() = sp.getBoolean("dynamic", false)
         set(v) = sp.edit().putBoolean("dynamic", v).apply()
 
-    // behavior
-    var autoSync: Boolean
-        get() = sp.getBoolean("autosync", true)
-        set(v) = sp.edit().putBoolean("autosync", v).apply()
+    // quality of images sent with "send image": original, high or economy. files are always sent as they are
+    var imageQuality: String
+        get() = sp.getString("imgq", "original") ?: "original"
+        set(v) = sp.edit().putString("imgq", v).apply()
+
+    // clipboard. send and receive are separate; the old single "autosync" value is the default for both
+    var clipSend: Boolean
+        get() = sp.getBoolean("clipsend", sp.getBoolean("autosync", true))
+        set(v) = sp.edit().putBoolean("clipsend", v).apply()
+
+    var clipReceive: Boolean
+        get() = sp.getBoolean("cliprecv", sp.getBoolean("autosync", true))
+        set(v) = sp.edit().putBoolean("cliprecv", v).apply()
+
+    // automatic clipboard sync is paused until this time (epoch ms), Long.MAX_VALUE = until the user resumes, 0 = not paused
+    var clipPausedUntil: Long
+        get() = sp.getLong("clippause", 0L)
+        set(v) = sp.edit().putLong("clippause", v).apply()
+
+    // clipboard text in the history, off by default
+    var clipHistory: Boolean
+        get() = sp.getBoolean("cliphist", false)
+        set(v) = sp.edit().putBoolean("cliphist", v).apply()
 
     // true = accept requests from the paired pc without asking
     var autoAccept: Boolean

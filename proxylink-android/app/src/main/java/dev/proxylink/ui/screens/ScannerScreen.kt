@@ -34,7 +34,12 @@ import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
+import androidx.compose.ui.res.stringResource
+import dev.proxylink.R
+import dev.proxylink.core.Link
+import dev.proxylink.core.LinkState
 import dev.proxylink.ui.components.AppButton
+import dev.proxylink.ui.components.rememberSendActions
 import dev.proxylink.ui.components.AppOutlinedButton
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
@@ -49,12 +54,16 @@ fun ScannerScreen(onResult: (String) -> Boolean, onClose: () -> Unit) {
     val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted = it }
     LaunchedEffect(Unit) { if (!granted) ask.launch(Manifest.permission.CAMERA) }
     var torch by remember { mutableStateOf(false) }
+    // after a right code the camera is replaced by the connection result, sending a file stays an explicit action
+    var scanned by remember { mutableStateOf(false) }
 
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.scrim)) {
-        if (granted) {
+        if (scanned) {
+            ScanResult(onAgain = { scanned = false }, onClose = onClose)
+        } else if (granted) {
             CameraPreview(torch = torch, onCode = { raw ->
                 val ok = onResult(raw)
-                if (!ok) Toast.makeText(ctx, "not a proxylink code", Toast.LENGTH_SHORT).show()
+                if (ok) scanned = true else Toast.makeText(ctx, R.string.not_proxylink_code, Toast.LENGTH_SHORT).show()
                 ok
             })
             Box(
@@ -62,20 +71,38 @@ fun ScannerScreen(onResult: (String) -> Boolean, onClose: () -> Unit) {
                     .border(2.dp, MaterialTheme.colorScheme.inverseSurface, MaterialTheme.shapes.medium),
             )
             Text(
-                "point at the qr code on the pc",
+                stringResource(R.string.scan_hint),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.inverseSurface,
                 modifier = Modifier.align(Alignment.Center).offset(y = 150.dp),
             )
             Row(Modifier.fillMaxWidth().padding(8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                 IconButton(onClick = onClose) {
-                    Icon(Icons.Default.Close, contentDescription = "close", tint = MaterialTheme.colorScheme.inverseSurface)
+                    Icon(Icons.Default.Close, contentDescription = stringResource(R.string.close), tint = MaterialTheme.colorScheme.inverseSurface)
                 }
                 IconButton(onClick = { torch = !torch }) {
                     Icon(
                         if (torch) Icons.Default.FlashOn else Icons.Default.FlashOff,
-                        contentDescription = if (torch) "turn torch off" else "turn torch on",
+                        contentDescription = stringResource(if (torch) R.string.torch_off else R.string.torch_on),
                         tint = MaterialTheme.colorScheme.inverseSurface,
+                    )
+                }
+            }
+            // the other direction (this phone shows a qr code, the pc scans it) needs a pc that reads qr codes.
+            // the current pc app and protocol do not, so the button stays disabled and says why
+            Column(
+                Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                AppOutlinedButton(onClick = {}, enabled = PHONE_QR_SUPPORTED, modifier = Modifier.fillMaxWidth()) {
+                    Text(stringResource(R.string.generate_qr))
+                }
+                if (!PHONE_QR_SUPPORTED) {
+                    Text(
+                        stringResource(R.string.generate_qr_unsupported),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.inverseSurface,
                     )
                 }
             }
@@ -86,13 +113,53 @@ fun ScannerScreen(onResult: (String) -> Boolean, onClose: () -> Unit) {
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text(
-                    "the camera is needed to scan the qr code",
+                    stringResource(R.string.camera_needed),
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.inverseSurface,
                 )
-                AppButton(onClick = { ask.launch(Manifest.permission.CAMERA) }) { Text("allow camera") }
-                AppOutlinedButton(onClick = onClose) { Text("close") }
+                AppButton(onClick = { ask.launch(Manifest.permission.CAMERA) }) { Text(stringResource(R.string.allow_camera)) }
+                AppOutlinedButton(onClick = onClose) { Text(stringResource(R.string.close)) }
             }
+        }
+    }
+}
+
+// pc app does not read qr codes from phones yet (no scanner, no protocol message). change together with the pc side
+private const val PHONE_QR_SUPPORTED = false
+
+@Composable
+private fun BoxScope.ScanResult(onAgain: () -> Unit, onClose: () -> Unit) {
+    val actions = rememberSendActions()
+    val failed = Link.state == LinkState.NEEDS_PAIR && Link.pairError
+    Column(
+        Modifier.align(Alignment.Center).padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(
+            when {
+                Link.state == LinkState.CONNECTED -> stringResource(R.string.scan_connected, Link.pcName)
+                failed || Link.state == LinkState.IDLE || Link.state == LinkState.NEEDS_PAIR -> stringResource(R.string.scan_failed)
+                else -> stringResource(R.string.scan_connecting, Link.pcName)
+            },
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.inverseSurface,
+        )
+        when {
+            Link.state == LinkState.CONNECTED -> {
+                Text(
+                    stringResource(R.string.scan_connected_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.inverseSurface,
+                )
+                AppButton(onClick = actions.file) { Text(stringResource(R.string.send_file)) }
+                AppOutlinedButton(onClick = onClose) { Text(stringResource(R.string.done)) }
+            }
+            failed || Link.state == LinkState.IDLE || Link.state == LinkState.NEEDS_PAIR -> {
+                AppButton(onClick = onAgain) { Text(stringResource(R.string.scan_again)) }
+                AppOutlinedButton(onClick = onClose) { Text(stringResource(R.string.close)) }
+            }
+            else -> AppOutlinedButton(onClick = onClose) { Text(stringResource(R.string.close)) }
         }
     }
 }

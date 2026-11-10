@@ -21,6 +21,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import androidx.compose.ui.res.stringResource
+import dev.proxylink.R
 import dev.proxylink.core.KnownDevice
 import dev.proxylink.core.Link
 import dev.proxylink.core.LinkState
@@ -51,7 +53,7 @@ private fun ActionRow(icon: ImageVector, title: String, subtitle: String? = null
 
 // shown on the dashboard while no device is connected: connect, reconnect, forget
 @Composable
-fun NotConnectedScreen(onScan: () -> Unit) {
+fun NotConnectedScreen(onScan: () -> Unit, onNfc: () -> Unit) {
     val ctx = LocalContext.current
     var pairFor by remember { mutableStateOf<Peer?>(null) }
     var forgetting by remember { mutableStateOf<KnownDevice?>(null) }
@@ -86,13 +88,9 @@ fun NotConnectedScreen(onScan: () -> Unit) {
         Panel {
             ActionRow(Icons.Default.QrCodeScanner, "scan qr code", onClick = onScan)
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            when {
-                adapter == null -> ActionRow(Icons.Default.Nfc, "nfc", "not available on this phone", enabled = false) {}
-                !nfcOn -> ActionRow(Icons.Default.Nfc, "nfc", "turn on nfc") {
-                    ctx.startActivity(Intent(Settings.ACTION_NFC_SETTINGS))
-                }
-                else -> ActionRow(Icons.Default.Nfc, "nfc", "ready, hold the phone to a pairing tag", enabled = false) {}
-            }
+            // the nfc screen itself explains a switched off nfc and offers the system settings
+            if (adapter == null) ActionRow(Icons.Default.Nfc, "nfc", stringResource(R.string.nfc_unsupported), enabled = false) {}
+            else ActionRow(Icons.Default.Nfc, "nfc", stringResource(if (nfcOn) R.string.nfc_row_ready else R.string.nfc_off), onClick = onNfc)
             // new devices found on the network that are not paired yet
             Link.peers.filter { Link.prefs.secret(it.id) == null }.forEach { p ->
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)

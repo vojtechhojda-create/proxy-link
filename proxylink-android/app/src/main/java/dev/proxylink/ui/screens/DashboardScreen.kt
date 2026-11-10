@@ -12,9 +12,9 @@ import dev.proxylink.core.LinkState
 import dev.proxylink.ui.components.*
 
 @Composable
-fun DashboardScreen(onScan: () -> Unit, onShowAll: () -> Unit) {
+fun DashboardScreen(onScan: () -> Unit, onNfc: () -> Unit, onShowAll: () -> Unit) {
     if (Link.state != LinkState.CONNECTED) {
-        NotConnectedScreen(onScan)
+        NotConnectedScreen(onScan, onNfc)
         return
     }
     val actions = rememberSendActions()

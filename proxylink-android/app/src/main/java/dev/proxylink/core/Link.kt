@@ -1,6 +1,7 @@
 package dev.proxylink.core
 
 import android.content.ClipData
+import android.content.ClipDescription
 import android.content.ClipboardManager
 import android.content.ContentValues
 import android.content.Context
@@ -156,7 +157,11 @@ object Link {
     var pairError by mutableStateOf(false); private set
     var guest by mutableStateOf(false); private set
     var pcName by mutableStateOf(""); private set
-    var autoSync by mutableStateOf(true); private set
+    var clipSend by mutableStateOf(true); private set
+    var clipReceive by mutableStateOf(true); private set
+    var clipPausedUntil by mutableStateOf(0L); private set
+    var clipLastSent by mutableStateOf(0L); private set       // this session, 0 = nothing yet
+    var clipLastReceived by mutableStateOf(0L); private set
     var latency by mutableStateOf(-1L); private set
     var lastAttemptId by mutableStateOf<String?>(null); private set   // device of the last attempt
     var retries by mutableStateOf(0); private set                    // failed attempts in a row, 0 after success, a manual retry or the network coming back
@@ -214,7 +219,9 @@ object Link {
         prefs = Prefs(app)
         autoSuppressed = prefs.userDisconnected
         preferred = prefs.preferredId
-        autoSync = prefs.autoSync
+        clipSend = prefs.clipSend
+        clipReceive = prefs.clipReceive
+        clipPausedUntil = prefs.clipPausedUntil
         History.init(app)
         Notifier.init(app)
         discovery = Discovery(app)
@@ -264,7 +271,16 @@ object Link {
         known.addAll(prefs.knownDevices().sortedByDescending { it.lastConnected })
     }
 
-    fun changeAutoSync(v: Boolean) { autoSync = v; prefs.autoSync = v }
+    fun changeClipSend(v: Boolean) { clipSend = v; prefs.clipSend = v }
+    fun changeClipReceive(v: Boolean) { clipReceive = v; prefs.clipReceive = v }
+    fun clipPaused(): Boolean = clipPausedUntil > System.currentTimeMillis()
+    // ms = null: until the user resumes. manual sending is never blocked by the pause
+    fun pauseClip(ms: Long?) {
+        clipPausedUntil = if (ms == null) Long.MAX_VALUE else System.currentTimeMillis() + ms
+        prefs.clipPausedUntil = clipPausedUntil
+    }
+    fun resumeClip() { clipPausedUntil = 0L; prefs.clipPausedUntil = 0L }
+    private fun clipAuto(enabled: Boolean) = enabled && !clipPaused()
 
     private fun go(s: LinkState) {
         state = s
@@ -364,31 +380,47 @@ object Link {
     // qr / nfc payloads
     //   proxylink://pair?h=<ip>&p=<port>&c=<code>&f=<sha256>&i=<pc id>&n=<name>
     //   proxylink://guest?h=<ip>&p=<port>&t=<token>&f=<sha256>&n=<name>
-    fun pairFromQr(raw: String): Boolean {
-        val u = runCatching { Uri.parse(raw) }.getOrNull() ?: return false
-        if (u.scheme != "proxylink") return false
-        val h = u.getQueryParameter("h") ?: return false
-        val p = u.getQueryParameter("p")?.toIntOrNull() ?: return false
-        val f = u.getQueryParameter("f") ?: return false
+    // a parsed qr / nfc link. nothing is connected until connectTo is called
+    class LinkInfo(
+        val kind: String, val host: String, val port: Int, val fp: String, val name: String,
+        val id: String, val code: String?, val token: String?,
+    )
+
+    fun parseLink(raw: String): LinkInfo? {
+        val u = runCatching { Uri.parse(raw) }.getOrNull() ?: return null
+        if (u.scheme != "proxylink") return null
+        val h = u.getQueryParameter("h") ?: return null
+        val p = u.getQueryParameter("p")?.toIntOrNull() ?: return null
+        val f = u.getQueryParameter("f") ?: return null
         val n = u.getQueryParameter("n") ?: "pc"
-        if (!Regex("[0-9a-fA-F]{64}").matches(f)) return false
-        if (!Regex("\\d{1,3}(\\.\\d{1,3}){3}").matches(h) || p !in 1..65535) return false
+        if (!Regex("[0-9a-fA-F]{64}").matches(f)) return null
+        if (!Regex("\\d{1,3}(\\.\\d{1,3}){3}").matches(h) || p !in 1..65535) return null
         return when (u.host) {
             "pair" -> {
-                val c = u.getQueryParameter("c") ?: return false
-                val id = u.getQueryParameter("i") ?: return false
-                if (!Regex("\\d{6}").matches(c)) return false
-                connect(Peer("qr-$id", id, n, h, p, f.lowercase()), c)
-                true
+                val c = u.getQueryParameter("c") ?: return null
+                val id = u.getQueryParameter("i") ?: return null
+                if (!Regex("\\d{6}").matches(c)) return null
+                LinkInfo("pair", h, p, f.lowercase(), n, id, c, null)
             }
             "guest" -> {
-                val t = u.getQueryParameter("t") ?: return false
-                if (!Regex("[0-9a-f]{18}").matches(t)) return false
-                connect(Peer("guest-$h", "", n, h, p, f.lowercase()), null, t)
-                true
+                val t = u.getQueryParameter("t") ?: return null
+                if (!Regex("[0-9a-f]{18}").matches(t)) return null
+                LinkInfo("guest", h, p, f.lowercase(), n, "", null, t)
             }
-            else -> false
+            else -> null
         }
+    }
+
+    fun connectTo(i: LinkInfo) {
+        if (i.kind == "pair") connect(Peer("qr-${i.id}", i.id, i.name, i.host, i.port, i.fp), i.code)
+        else connect(Peer("guest-${i.host}", "", i.name, i.host, i.port, i.fp), null, i.token)
+    }
+
+    // the qr scanner: the user pointed the camera at the code on purpose
+    fun pairFromQr(raw: String): Boolean {
+        val i = parseLink(raw) ?: return false
+        connectTo(i)
+        return true
     }
 
     private const val MAX_RETRIES = 8
@@ -490,13 +522,14 @@ object Link {
                     }
                 }
             }
-            "clip.update" -> if (autoSync && !guest) {
+            "clip.update" -> if (clipAuto(clipReceive) && !guest) {
                 val t = m.getString("text")
                 if (sha(t) != clipHash) {
                     clipHash = sha(t)
                     app.getSystemService(ClipboardManager::class.java)
                         .setPrimaryClip(ClipData.newPlainText("proxylink", t))
-                    History.add(Item("clip", t, pcName, dir = "in", size = t.length.toLong()))
+                    clipLastReceived = System.currentTimeMillis()
+                    if (prefs.clipHistory) History.add(Item("clip", t, pcName, dir = "in", size = t.length.toLong()))
                 }
             }
         }
@@ -601,7 +634,7 @@ object Link {
     }
 
     // opens the stream immediately so a share-sheet uri permission can expire afterwards. false = not sent
-    fun sendFile(uri: Uri): Boolean {
+    fun sendFile(uri: Uri, nameOverride: String? = null, mimeOverride: String? = null): Boolean {
         if (state != LinkState.CONNECTED) return false
         val cr = app.contentResolver
         var name = "file"
@@ -616,10 +649,11 @@ object Link {
                 }
             }
         }
+        nameOverride?.let { name = it }
         val stream = runCatching { cr.openInputStream(uri) }.getOrNull() ?: return false
         if (size < 0) size = runCatching { stream.available().toLong() }.getOrDefault(0L)
         val sid = UUID.randomUUID().toString()
-        val mime = cr.getType(uri) ?: "application/octet-stream"
+        val mime = mimeOverride ?: cr.getType(uri) ?: "application/octet-stream"
         val who = target?.name ?: "pc"
         pendingFiles[sid] = OutFile(name, size, mime, stream, who, uri.toString())
         outMeta[sid] = uri.toString() to mime
@@ -632,11 +666,30 @@ object Link {
         return true
     }
 
+    private val imageExec = java.util.concurrent.Executors.newSingleThreadExecutor()
+
+    // "send image": the chosen quality applies here only. the work runs off the main thread, any failure sends the original
+    fun sendImage(uri: Uri) {
+        val q = ImageOptimizer.Quality.from(prefs.imageQuality)
+        if (q == ImageOptimizer.Quality.ORIGINAL) { sendFile(uri); return }
+        imageExec.execute {
+            val r = ImageOptimizer.optimize(app, uri, q)
+            main.post {
+                if (r == null) sendFile(uri) else sendFile(Uri.fromFile(r.file), r.name, "image/jpeg")
+            }
+        }
+    }
+
     // send a history entry again. false = the file is gone
     fun resend(item: Item): Boolean {
         if (state != LinkState.CONNECTED) return false
         return when (item.kind) {
-            "file" -> item.uri?.let { runCatching { sendFile(Uri.parse(it)) }.getOrDefault(false) } ?: false
+            "file" -> item.uri?.let { u ->
+                // a resized copy lives in the app cache as a file:// uri, there the name and type come from the history item
+                val p = Uri.parse(u)
+                val own = p.scheme == "file"
+                runCatching { sendFile(p, if (own) item.text else null, if (own) item.mime else null) }.getOrDefault(false)
+            } ?: false
             else -> { sendText(item.text); true }
         }
     }
@@ -712,9 +765,11 @@ object Link {
 
     // reading the clipboard only works while the app has focus (android 10+)
     fun pushClipboard(manual: Boolean = false) {
-        if (state != LinkState.CONNECTED || guest || (!manual && !autoSync)) return
+        if (state != LinkState.CONNECTED || guest || (!manual && !clipAuto(clipSend))) return
         val cm = app.getSystemService(ClipboardManager::class.java)
         val clip = cm.primaryClip?.takeIf { it.itemCount > 0 } ?: return
+        // text the source app marked as sensitive (passwords, one time codes) is never sent automatically
+        if (!manual && clip.description.extras?.getBoolean(ClipDescription.EXTRA_IS_SENSITIVE, false) == true) return
         val first = clip.getItemAt(0)
         // an image in the clipboard is sent as a file, only when the user asks
         val imageUri = first.uri
@@ -728,7 +783,8 @@ object Link {
         if (!manual && h == clipHash) return
         clipHash = h
         tx(mapOf("t" to "clip.update", "ts" to System.currentTimeMillis(), "hash" to h, "text" to t.take(100_000)))
-        History.add(Item("clip", t, prefs.name, dir = "out", size = t.length.toLong()))
+        clipLastSent = System.currentTimeMillis()
+        if (prefs.clipHistory) History.add(Item("clip", t, prefs.name, dir = "out", size = t.length.toLong()))
     }
 
     private fun safe(n: String) = n.replace(Regex("[\\\\/:*?\"<>|]"), "_").take(120).ifBlank { "file" }

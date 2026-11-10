@@ -28,12 +28,14 @@ import androidx.navigation.compose.rememberNavController
 import dev.proxylink.core.Link
 import dev.proxylink.ui.components.fmtSize
 import dev.proxylink.ui.screens.DashboardScreen
+import dev.proxylink.ui.screens.NfcScreen
 import dev.proxylink.ui.screens.ScannerScreen
 import dev.proxylink.ui.screens.SettingsScreen
 import dev.proxylink.ui.screens.SettingsSection
 import dev.proxylink.ui.screens.ShareScreen
 
 private const val ROUTE_SCAN = "scan"
+private const val ROUTE_NFC = "nfc"
 private const val ROUTE_SECTION = "settings/{section}"
 
 enum class Tab(val route: String, val label: String, val icon: ImageVector) {
@@ -56,7 +58,7 @@ fun ProxylinkApp() {
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
-            if (current != null && current != ROUTE_SCAN) {
+            if (current != null && current != ROUTE_SCAN && current != ROUTE_NFC) {
                 NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
                     Tab.entries.forEach { tab ->
                         NavigationBarItem(
@@ -78,7 +80,7 @@ fun ProxylinkApp() {
             exitTransition = { fadeOut(tween(160)) },
         ) {
             composable(Tab.DASHBOARD.route) {
-                DashboardScreen(onScan = { nav.navigate(ROUTE_SCAN) }, onShowAll = { nav.openTab(Tab.SHARE) })
+                DashboardScreen(onScan = { nav.navigate(ROUTE_SCAN) }, onNfc = { nav.navigate(ROUTE_NFC) }, onShowAll = { nav.openTab(Tab.SHARE) })
             }
             composable(Tab.SHARE.route) { ShareScreen() }
             composable(Tab.SETTINGS.route) { SettingsScreen(onOpen = { nav.navigate("settings/$it") }) }
@@ -89,13 +91,15 @@ fun ProxylinkApp() {
                     onScan = { nav.navigate(ROUTE_SCAN) },
                 )
             }
+            composable(ROUTE_NFC) {
+                NfcScreen(
+                    onClose = { nav.popBackStack() },
+                    onScan = { nav.popBackStack(); nav.navigate(ROUTE_SCAN) },
+                )
+            }
             composable(ROUTE_SCAN) {
                 ScannerScreen(
-                    onResult = { raw ->
-                        val ok = Link.pairFromQr(raw)
-                        if (ok) nav.popBackStack()
-                        ok
-                    },
+                    onResult = { raw -> Link.pairFromQr(raw) },
                     onClose = { nav.popBackStack() },
                 )
             }

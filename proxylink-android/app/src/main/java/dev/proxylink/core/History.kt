@@ -37,6 +37,12 @@ object History {
         save()
     }
 
+    // clipboard items only, files stay
+    fun clearClips() {
+        items.removeAll { it.kind == "clip" }
+        save()
+    }
+
     fun clear() {
         items.clear()
         save()

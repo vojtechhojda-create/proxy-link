@@ -22,7 +22,7 @@ fun rememberSendActions(): SendActions {
         }
     }
     val imageLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { uris ->
-        uris.forEach { Link.sendFile(it) }
+        uris.forEach { Link.sendImage(it) }
     }
     return SendActions(
         file = { haptic(); fileLauncher.launch(arrayOf("*/*")) },
