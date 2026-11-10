@@ -88,7 +88,7 @@ private fun DevicesSection(onBack: () -> Unit, onScan: () -> Unit) {
                             )
                         }
                         SwitchRow("preferred device", "auto connect and the tile use this one", Link.preferred == d.id) {
-                            Link.setPreferred(if (it) d.id else null)
+                            Link.setPreferredDevice(if (it) d.id else null)
                         }
                         Spacer(Modifier.height(12.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

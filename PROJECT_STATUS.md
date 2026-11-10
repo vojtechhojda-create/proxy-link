@@ -46,9 +46,21 @@ nepoužito: změna pc (nebyla potřeba)
 - ProxyLogo.kt, launcher foreground/mono a ic_tile odpovídají geometrii originálu (přepočet souřadnic)
 - xml je well-formed
 
-## neověřeno
-- gradle build (v prostředí není android sdk; ověří github actions android.yml)
-- chování aliasů na zařízení s android 13
+## oprava buildu 1
+github actions: platform declaration clash v Link.kt (setPreferred). property `preferred` generuje JVM setter setPreferred(String), ručně psaná funkce měla stejný podpis. přejmenováno na setPreferredDevice (Link.kt ×2 volání, SettingsSections.kt ×1). jiná kolize set*/get* funkce s property není (zkontrolováno grepem přes celý kód). chování beze změny. build po opravě zatím neproběhl.
+
+## příprava na build
+zkontrolováno staticky, bez překladače:
+- gradle: agp 8.5.2, kotlin 2.0.20 + compose plugin, compileSdk 34, minSdk/targetSdk 33, compose bom 2024.09.00, okhttp 4.12.0, camerax 1.3.4, mlkit barcode 17.3.0; repozitáře google + mavenCentral. žádné nové závislosti nepřibyly
+- gradle wrapper v repozitáři NENÍ; nedoplňoval jsem ho (jar nelze stáhnout z prostředí). workflow používá gradle/actions/setup-gradle s gradle 8.9 a příkazem `gradle`, což wrapper nepotřebuje. v android studiu se použije jeho vlastní gradle
+- android.yml: spouští `gradle :app:assembleDebug`, nahrává app-debug.apk jako artefakt. upraveno: běží i na pull_request, přidáno --stacktrace, if-no-files-found: error, permissions: contents: read. build se spustí na každé větvi při změně proxylink-android/**
+- manifest a všechny změněné xml jsou well-formed; aliasy jsou po `<activity>` MainActivity, ikony i barva existují
+- všechny změněné kotlin soubory mají vyvážené závorky; importy v SettingsSections jsou pokryté (wildcardy layout, material3, runtime, components); použité symboly v Prefs, History, Link a Common.kt existují s odpovídajícími podpisy
+- parser tree-sitter-kotlin hlásí chyby v Link.kt (19, původní verze 1) a v SettingsSections.kt (2, stejně jako původní). u Link.kt jsem příčinu nenašel (zkoušeno odebráním všech nových bloků); původní soubor už jedno hlášení měl, takže jde nejspíš o omezení gramatiky, ale jistotu bez kompilátoru nemám
+
+neověřeno:
+- samotný gradle build (v prostředí není android sdk ani přístup k google maven)
+- chování aliasů ikony a reconnectu na zařízení s android 13
 
 ## dále
 po zelené sestavě a testu reconnectu na telefonu: dokončit celek 3 (resources cs/en, výjimky zařízení, skrývání vypnutých funkcí), potom celek 4 (schránka).

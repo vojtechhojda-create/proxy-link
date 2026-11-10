@@ -142,9 +142,11 @@ object Link {
     private var pingAt = 0L
     // user disconnected on purpose: no auto connect until they connect again. saved, so a restart does not undo it
     private var autoSuppressed = false
-        set(v) {
-            if (field != v) { field = v; if (this::prefs.isInitialized) prefs.userDisconnected = v }
-        }
+    private fun suppress(v: Boolean) {
+        if (autoSuppressed == v) return
+        autoSuppressed = v
+        if (this::prefs.isInitialized) prefs.userDisconnected = v
+    }
     private val pendingText = HashMap<String, Item>()
     private val pendingFiles = HashMap<String, OutFile>()
     private val meta = HashMap<String, ShareReq>()
@@ -236,7 +238,7 @@ object Link {
         if (peer != null && !guest && !autoSuppressed && prefs.autoConnect) { main.removeCallbacks(retry); main.post(retry) }
     }
 
-    fun setPreferred(id: String?) { preferred = id; prefs.preferredId = id }
+    fun setPreferredDevice(id: String?) { preferred = id; prefs.preferredId = id }
 
     // auto connect goes only to the preferred device, if one is set and still paired
     private fun autoAllowed(id: String) = preferred.let { it == null || it == id || known.none { k -> k.id == it } }
@@ -274,7 +276,7 @@ object Link {
     }
 
     fun connect(p: Peer, pairCode: String? = null, guestTok: String? = null) {
-        autoSuppressed = false
+        suppress(false)
         main.removeCallbacks(retry)
         lastAttempt = System.currentTimeMillis()
         lastAttemptId = p.id
@@ -304,7 +306,7 @@ object Link {
     }
 
     fun disconnect() {
-        autoSuppressed = true
+        suppress(true)
         main.removeCallbacks(retry)
         retries = 0
         peer = null
@@ -318,7 +320,7 @@ object Link {
     // connect to the remembered device as soon as it is in range
     fun reconnect(id: String) {
         if (state == LinkState.CONNECTED || state == LinkState.CONNECTING) return
-        autoSuppressed = false
+        suppress(false)
         retries = 0   // manual "try again" starts a fresh series
         val p = peers.firstOrNull { it.id == id }
         if (p != null) connect(p) else {
@@ -337,9 +339,9 @@ object Link {
     fun forget(id: String) {
         val wasSuppressed = autoSuppressed
         if (peer?.id == id || pcId == id) disconnect()
-        autoSuppressed = wasSuppressed   // forgetting a device is not "turn everything off"
+        suppress(wasSuppressed)   // forgetting a device is not "turn everything off"
         if (reconnecting == id) reconnecting = null
-        if (preferred == id) setPreferred(null)
+        if (preferred == id) setPreferredDevice(null)
         prefs.forget(id)
         refreshKnown()
     }
