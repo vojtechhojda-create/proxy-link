@@ -5,7 +5,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -34,7 +38,15 @@ fun SettingsScreen(onOpen: (String) -> Unit) {
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             NavRow("appearance", Icons.Default.Palette, if (PaletteStore.dynamic) "system" else PaletteStore.current.label) { onOpen("appearance") }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            NavRow("behavior", Icons.Default.Tune) { onOpen("behavior") }
+            NavRow("clipboard", Icons.Default.ContentPaste) { onOpen("clipboard") }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            NavRow("transfers", Icons.Default.SwapVert) { onOpen("transfers") }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            NavRow("notifications and control", Icons.Default.Notifications) { onOpen("notifications") }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            NavRow("privacy and security", Icons.Default.Lock) { onOpen("privacy") }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            NavRow("diagnostics", Icons.Default.BugReport) { onOpen("diagnostics") }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             NavRow("about", Icons.Default.Info) { onOpen("about") }
         }

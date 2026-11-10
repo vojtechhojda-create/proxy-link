@@ -12,6 +12,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import dev.proxylink.core.Link
+import dev.proxylink.core.LauncherIcon
 import dev.proxylink.ui.nav.ProxylinkApp
 import dev.proxylink.ui.theme.PaletteStore
 import dev.proxylink.ui.theme.ProxylinkTheme
@@ -23,6 +24,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         Link.init(this)
         PaletteStore.load(Link.prefs.palette, Link.prefs.dynamicColor)
+        // keeps exactly one launcher entry enabled and in line with the saved choice
+        LauncherIcon.apply(this, Link.prefs.paletteIcon, Link.prefs.palette, Link.prefs.dynamicColor)
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),

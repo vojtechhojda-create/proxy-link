@@ -23,6 +23,11 @@ class Prefs(ctx: Context) {
         get() = sp.getString("palette", null) ?: "brand"
         set(v) = sp.edit().putString("palette", v).apply()
 
+    // true = launcher icon follows the selected palette (colored), false = original brand icon
+    var paletteIcon: Boolean
+        get() = sp.getBoolean("paletteicon", false)
+        set(v) = sp.edit().putBoolean("paletteicon", v).apply()
+
     var dynamicColor: Boolean
         get() = sp.getBoolean("dynamic", false)
         set(v) = sp.edit().putBoolean("dynamic", v).apply()
@@ -36,6 +41,16 @@ class Prefs(ctx: Context) {
     var autoAccept: Boolean
         get() = sp.getBoolean("autoaccept", true)
         set(v) = sp.edit().putBoolean("autoaccept", v).apply()
+
+    // the user disconnected on purpose: no auto connect, also after the app or the phone restarts, until they connect again
+    var userDisconnected: Boolean
+        get() = sp.getBoolean("userdisc", false)
+        set(v) = sp.edit().putBoolean("userdisc", v).apply()
+
+    // with a preferred device auto connect and the tile go to it, other paired devices connect manually
+    var preferredId: String?
+        get() = sp.getString("preferred", null)
+        set(v) = sp.edit().apply { if (v == null) remove("preferred") else putString("preferred", v) }.apply()
 
     // true = connect to a paired device as soon as it is in range
     var autoConnect: Boolean

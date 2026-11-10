@@ -21,6 +21,7 @@ class LinkService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        running = true
         Link.init(this)
         getSystemService(NotificationManager::class.java)
             .createNotificationChannel(NotificationChannel(CH, "connection", NotificationManager.IMPORTANCE_LOW))
@@ -36,6 +37,7 @@ class LinkService : Service() {
     }
 
     override fun onDestroy() {
+        running = false
         Link.removeListener(listener)
         wifiLock?.let { if (it.isHeld) it.release() }
         super.onDestroy()
@@ -63,8 +65,10 @@ class LinkService : Service() {
             .build()
     }
 
-    private companion object {
-        const val CH = "link"
-        const val ID = 1
+    companion object {
+        @Volatile var running = false   // for diagnostics only
+            private set
+        private const val CH = "link"
+        private const val ID = 1
     }
 }

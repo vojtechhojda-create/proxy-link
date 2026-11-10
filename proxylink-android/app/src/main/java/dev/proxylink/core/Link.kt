@@ -10,6 +10,8 @@ import android.os.Looper
 import android.os.SystemClock
 import android.provider.MediaStore
 import android.provider.OpenableColumns
+import android.net.ConnectivityManager
+import android.net.Network
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
@@ -138,7 +140,11 @@ object Link {
     private var helloName = ""
     private var clipHash = ""
     private var pingAt = 0L
-    private var autoSuppressed = false      // user disconnected on purpose: no auto connect until they connect again
+    // user disconnected on purpose: no auto connect until they connect again. saved, so a restart does not undo it
+    private var autoSuppressed = false
+        set(v) {
+            if (field != v) { field = v; if (this::prefs.isInitialized) prefs.userDisconnected = v }
+        }
     private val pendingText = HashMap<String, Item>()
     private val pendingFiles = HashMap<String, OutFile>()
     private val meta = HashMap<String, ShareReq>()
@@ -150,6 +156,11 @@ object Link {
     var pcName by mutableStateOf(""); private set
     var autoSync by mutableStateOf(true); private set
     var latency by mutableStateOf(-1L); private set
+    var lastAttemptId by mutableStateOf<String?>(null); private set   // device of the last attempt
+    var retries by mutableStateOf(0); private set                    // failed attempts in a row, 0 after success, a manual retry or the network coming back
+    var preferred by mutableStateOf<String?>(null); private set
+    var lastAttempt by mutableStateOf(0L); private set                // time of the last connect attempt, 0 = none yet
+    var lastError by mutableStateOf<String?>(null); private set       // why the last attempt or connection failed, no secrets
     var reconnecting by mutableStateOf<String?>(null); private set   // paired device id we are searching for
     var targetId by mutableStateOf<String?>(null)                    // null = the pc, otherwise another device via pc
     val peers = mutableStateListOf<Peer>()
@@ -170,6 +181,27 @@ object Link {
         }
     }
 
+    // one retry timer for the whole link: a new attempt always cancels the pending one, so loops cannot pile up.
+    // the address is taken from discovery each time, a paired device may have a new ip after the network came back
+    private val retry = Runnable {
+        val p = peer ?: return@Runnable
+        if (state == LinkState.IDLE) connect(peers.firstOrNull { it.id == p.id } ?: p)
+    }
+
+    private fun describe(t: Throwable): String = when {
+        generateSequence(t) { it.cause }.any { it is CertificateException } -> "certificate does not match the paired device"
+        t is java.net.SocketTimeoutException -> "timeout"
+        t is java.net.ConnectException || t is java.net.UnknownHostException || t is java.net.NoRouteToHostException -> "device not reachable"
+        else -> "connection lost"
+    }
+
+    // searching for a paired device gives up after this long, so "searching" never lasts forever
+    private val giveUp = Runnable {
+        if (state == LinkState.IDLE && reconnecting != null) { reconnecting = null; notifyChanged() }
+    }
+
+    private fun notifyChanged() { listeners.forEach { it(state) } }
+
     fun addListener(l: (LinkState) -> Unit) { listeners.add(l) }
     fun removeListener(l: (LinkState) -> Unit) { listeners.remove(l) }
 
@@ -178,6 +210,8 @@ object Link {
         if (this::app.isInitialized) return
         app = ctx.applicationContext
         prefs = Prefs(app)
+        autoSuppressed = prefs.userDisconnected
+        preferred = prefs.preferredId
         autoSync = prefs.autoSync
         History.init(app)
         Notifier.init(app)
@@ -185,7 +219,27 @@ object Link {
         refreshKnown()
         startDiscovery()
         main.postDelayed(pinger, 5000)
+        // wi-fi came back or changed: browse again and try the last device once, instead of waiting for backoff timers
+        runCatching { app.getSystemService(ConnectivityManager::class.java).registerDefaultNetworkCallback(netCallback) }
     }
+
+    private val netCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) {
+            main.post { main.removeCallbacks(netBack); main.postDelayed(netBack, 1500) }   // debounce, onAvailable can fire in bursts
+        }
+    }
+    private val netBack = Runnable {
+        if (state != LinkState.IDLE) return@Runnable
+        retries = 0
+        peers.clear()   // addresses from before the network change are stale
+        discovery.stop(); startDiscovery()
+        if (peer != null && !guest && !autoSuppressed && prefs.autoConnect) { main.removeCallbacks(retry); main.post(retry) }
+    }
+
+    fun setPreferred(id: String?) { preferred = id; prefs.preferredId = id }
+
+    // auto connect goes only to the preferred device, if one is set and still paired
+    private fun autoAllowed(id: String) = preferred.let { it == null || it == id || known.none { k -> k.id == it } }
 
     private fun startDiscovery() {
         discovery.start(
@@ -193,8 +247,11 @@ object Link {
                 peers.removeAll { it.key == p.key }
                 peers.add(p)
                 val paired = prefs.secret(p.id) != null
-                val wanted = reconnecting == p.id || (prefs.autoConnect && !autoSuppressed)
+                val wanted = reconnecting == p.id || (prefs.autoConnect && !autoSuppressed && autoAllowed(p.id))
                 if (state == LinkState.IDLE && paired && wanted) connect(p)
+                // the device we are trying to reach announced a new address: switch to it instead of retrying the old one
+                else if (state == LinkState.CONNECTING && paired && code == null && guestToken == null &&
+                    peer?.id == p.id && peer?.host != p.host) connect(p)
             } },
             onLost = { k -> main.post { peers.removeAll { it.key == k } } },
         )
@@ -211,13 +268,16 @@ object Link {
         state = s
         if (s != LinkState.CONNECTED) { latency = -1; others.clear(); targetId = null }
         if (s == LinkState.IDLE) guest = false
-        if (s == LinkState.CONNECTED) { reconnecting = null; discovery.stop(); peers.clear() } else startDiscovery()
+        if (s == LinkState.CONNECTED) { reconnecting = null; retries = 0; lastError = null; discovery.stop(); peers.clear() } else startDiscovery()
         listeners.forEach { it(s) }
         if (this::app.isInitialized) Shortcuts.publish(app, pcName, others.toList())
     }
 
     fun connect(p: Peer, pairCode: String? = null, guestTok: String? = null) {
         autoSuppressed = false
+        main.removeCallbacks(retry)
+        lastAttempt = System.currentTimeMillis()
+        lastAttemptId = p.id
         ws?.close(1000, null)
         abortTransfers()
         peer = p; code = pairCode; guestToken = guestTok
@@ -234,13 +294,19 @@ object Link {
                 }
             }
             override fun onMessage(webSocket: WebSocket, bytes: ByteString) { onChunk(bytes) }
-            override fun onClosed(webSocket: WebSocket, c: Int, r: String) { main.post { if (webSocket === ws) dropped() } }
-            override fun onFailure(webSocket: WebSocket, t: Throwable, r: Response?) { main.post { if (webSocket === ws) dropped() } }
+            override fun onClosed(webSocket: WebSocket, c: Int, r: String) {
+                main.post { if (webSocket === ws) { lastError = "connection closed"; dropped() } }
+            }
+            override fun onFailure(webSocket: WebSocket, t: Throwable, r: Response?) {
+                main.post { if (webSocket === ws) { lastError = describe(t); dropped() } }
+            }
         })
     }
 
     fun disconnect() {
         autoSuppressed = true
+        main.removeCallbacks(retry)
+        retries = 0
         peer = null
         ws?.close(1000, null); ws = null
         abortTransfers()
@@ -253,27 +319,44 @@ object Link {
     fun reconnect(id: String) {
         if (state == LinkState.CONNECTED || state == LinkState.CONNECTING) return
         autoSuppressed = false
+        retries = 0   // manual "try again" starts a fresh series
         val p = peers.firstOrNull { it.id == id }
-        if (p != null) connect(p) else reconnecting = id
+        if (p != null) connect(p) else {
+            reconnecting = id
+            main.removeCallbacks(giveUp)
+            main.postDelayed(giveUp, 30_000)
+            notifyChanged()   // listeners (the tile) learn that we are searching, state itself is still IDLE
+        }
     }
 
-    fun cancelReconnect() { reconnecting = null }
+    fun cancelReconnect() {
+        main.removeCallbacks(giveUp)
+        if (reconnecting != null) { reconnecting = null; notifyChanged() }
+    }
 
     fun forget(id: String) {
+        val wasSuppressed = autoSuppressed
         if (peer?.id == id || pcId == id) disconnect()
+        autoSuppressed = wasSuppressed   // forgetting a device is not "turn everything off"
         if (reconnecting == id) reconnecting = null
+        if (preferred == id) setPreferred(null)
         prefs.forget(id)
         refreshKnown()
     }
 
     fun connectPaired() {
         if (state == LinkState.CONNECTED || state == LinkState.CONNECTING) return
-        val inRange = peers.firstOrNull { prefs.secret(it.id) != null }
-        if (inRange != null) reconnect(inRange.id) else known.firstOrNull()?.let { reconnect(it.id) }
+        val pref = preferred?.takeIf { id -> known.any { it.id == id } }
+        val inRange = peers.firstOrNull { prefs.secret(it.id) != null && (pref == null || it.id == pref) }
+        if (inRange != null) reconnect(inRange.id) else (known.firstOrNull { it.id == pref } ?: known.firstOrNull())?.let { reconnect(it.id) }
     }
 
     fun toggle() {
-        if (state == LinkState.CONNECTED || state == LinkState.CONNECTING) disconnect() else connectPaired()
+        when {
+            state == LinkState.CONNECTED || state == LinkState.CONNECTING -> disconnect()
+            reconnecting != null -> cancelReconnect()   // second tap while searching = stop searching
+            else -> connectPaired()
+        }
     }
 
     // qr / nfc payloads
@@ -306,6 +389,8 @@ object Link {
         }
     }
 
+    private const val MAX_RETRIES = 8
+
     private fun dropped() {
         abortTransfers()
         if (guest) {                 // guest tokens are one-time, never reconnect
@@ -315,7 +400,10 @@ object Link {
         }
         val p = peer ?: return
         if (state != LinkState.NEEDS_PAIR) go(LinkState.IDLE)
-        main.postDelayed({ if (state == LinkState.IDLE && peer == p) connect(p) }, 3000)
+        // backoff 3, 6, 12, 24, 30 s ... and a limit. after that discovery (auto connect) or a manual retry takes over
+        if (++retries > MAX_RETRIES) return
+        main.removeCallbacks(retry)
+        main.postDelayed(retry, minOf(3000L shl minOf(retries - 1, 4), 30_000L))
     }
 
     private fun tx(m: Map<String, Any>) { ws?.send(JSONObject(m).toString()) }

@@ -24,8 +24,10 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import dev.proxylink.LinkService
 import dev.proxylink.core.History
 import dev.proxylink.core.Hotspot
+import dev.proxylink.core.LauncherIcon
 import dev.proxylink.core.KnownDevice
 import dev.proxylink.core.Link
 import dev.proxylink.core.LinkState
@@ -41,7 +43,11 @@ fun SettingsSection(section: String, onBack: () -> Unit, onScan: () -> Unit) {
         "devices" -> DevicesSection(onBack, onScan)
         "connection" -> ConnectionSection(onBack)
         "appearance" -> AppearanceSection(onBack)
-        "behavior" -> BehaviorSection(onBack)
+        "clipboard" -> ClipboardSection(onBack)
+        "transfers" -> TransfersSection(onBack)
+        "notifications" -> NotificationsSection(onBack)
+        "privacy" -> PrivacySection(onBack)
+        "diagnostics" -> DiagnosticsSection(onBack)
         else -> AboutSection(onBack)
     }
 }
@@ -72,10 +78,22 @@ private fun DevicesSection(onBack: () -> Unit, onScan: () -> Unit) {
                 AnimatedVisibility(visible = expanded) {
                     Column(Modifier.padding(top = 12.dp)) {
                         Text(d.id, style = MonoStyle, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (Link.lastAttempt > 0 && Link.lastAttemptId == d.id) {
+                            Text(
+                                "last attempt " + DateUtils.formatDateTime(ctx, Link.lastAttempt, DateUtils.FORMAT_SHOW_TIME) +
+                                    (Link.lastError?.let { ": $it" } ?: ""),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 4.dp),
+                            )
+                        }
+                        SwitchRow("preferred device", "auto connect and the tile use this one", Link.preferred == d.id) {
+                            Link.setPreferred(if (it) d.id else null)
+                        }
                         Spacer(Modifier.height(12.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             if (Link.state != LinkState.CONNECTED) {
-                                AppButton(onClick = { Link.reconnect(d.id) }) { Text("reconnect") }
+                                AppButton(onClick = { Link.reconnect(d.id) }) { Text(if (Link.lastError != null) "try again" else "reconnect") }
                             }
                             AppOutlinedButton(onClick = { forgetting = d }) { Text("forget") }
                         }
@@ -148,18 +166,24 @@ private fun ConnectionSection(onBack: () -> Unit) {
 
 @Composable
 private fun AppearanceSection(onBack: () -> Unit) {
+    val ctx = LocalContext.current
+    var iconByPalette by remember { mutableStateOf(Link.prefs.paletteIcon) }
+    fun syncIcon() = LauncherIcon.apply(ctx, Link.prefs.paletteIcon, Link.prefs.palette, Link.prefs.dynamicColor)
+
     SubScreen("appearance", onBack) {
         Palettes.all.forEach { p ->
             PaletteOption(p, selected = !PaletteStore.dynamic && PaletteStore.current.name == p.name) {
                 PaletteStore.select(p)
                 Link.prefs.palette = p.name
                 Link.prefs.dynamicColor = false
+                syncIcon()
             }
         }
         // material you: colors from the wallpaper, follows the system light / dark setting
         SelectableCard(selected = PaletteStore.dynamic, onClick = {
             PaletteStore.useSystem()
             Link.prefs.dynamicColor = true
+            syncIcon()
         }) {
             Text("system colors", style = MaterialTheme.typography.titleMedium)
             Text(
@@ -167,6 +191,18 @@ private fun AppearanceSection(onBack: () -> Unit) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+        Panel {
+            SwitchRow(
+                "icon by palette",
+                "colors the home screen icon with the selected palette. system colors keep the original icon. " +
+                    "the system themed icon (android settings) is separate and stays one color",
+                iconByPalette,
+            ) {
+                iconByPalette = it
+                Link.prefs.paletteIcon = it
+                syncIcon()
+            }
         }
     }
 }
@@ -198,26 +234,84 @@ private fun PaletteOption(p: Palette, selected: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun BehaviorSection(onBack: () -> Unit) {
+private fun ClipboardSection(onBack: () -> Unit) {
+    SubScreen("clipboard", onBack) {
+        Panel {
+            SwitchRow("sync clipboard", "while the app is open", Link.autoSync) { Link.changeAutoSync(it) }
+        }
+        Text(
+            "android 13 lets an app read the clipboard only while it is in the foreground, so background sync is not possible",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun TransfersSection(onBack: () -> Unit) {
+    var accept by remember { mutableStateOf(Link.prefs.autoAccept) }
+    var clearing by remember { mutableStateOf(false) }
+    SubScreen("transfers", onBack) {
+        Panel {
+            SwitchRow("accept automatically", "from your paired pc", accept) { accept = it; Link.prefs.autoAccept = it }
+        }
+        Panel {
+            Text("received files", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "saved in Download/proxylink",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        AppOutlinedButton(onClick = { clearing = true }, modifier = Modifier.fillMaxWidth()) { Text("clear history") }
+    }
+
+    if (clearing) {
+        AlertDialog(
+            onDismissRequest = { clearing = false },
+            title = { Text("clear history?") },
+            text = { Text("received files stay in Download/proxylink") },
+            confirmButton = { TextButton(onClick = { History.clear(); clearing = false }) { Text("clear") } },
+            dismissButton = { TextButton(onClick = { clearing = false }) { Text("cancel") } },
+        )
+    }
+}
+
+// these states can change in the system settings, so they are read again when the app resumes
+@Composable
+private fun rememberSystemTick(): Int {
+    var tick by remember { mutableIntStateOf(0) }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { tick++ }
+    return tick
+}
+
+@Composable
+private fun NotificationsSection(onBack: () -> Unit) {
     val ctx = LocalContext.current
     var boot by remember { mutableStateOf(Link.prefs.startOnBoot) }
-    var accept by remember { mutableStateOf(Link.prefs.autoAccept) }
     var haptics by remember { mutableStateOf(Link.prefs.haptics) }
-    var clearing by remember { mutableStateOf(false) }
-
-    // these two can change in the system settings, so they are read again when the app resumes
     var tick by remember { mutableIntStateOf(0) }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { tick++ }
     val exempt = tick >= 0 && ctx.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(ctx.packageName)
     val notificationsOn = tick >= 0 && ctx.getSystemService(NotificationManager::class.java).areNotificationsEnabled()
     val batt = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { tick++ }
 
-    SubScreen("behavior", onBack) {
+    SubScreen("notifications and control", onBack) {
         Panel {
             SwitchRow("start after reboot", null, boot) { boot = it; Link.prefs.startOnBoot = it }
-            SwitchRow("sync clipboard", "while the app is open", Link.autoSync) { Link.changeAutoSync(it) }
-            SwitchRow("accept automatically", "from your paired pc", accept) { accept = it; Link.prefs.autoAccept = it }
             SwitchRow("haptic feedback", null, haptics) { haptics = it; Link.prefs.haptics = it }
+        }
+        Panel {
+            Text("notifications", style = MaterialTheme.typography.titleMedium)
+            Text(
+                if (notificationsOn) "on" else "off in the system settings",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(8.dp))
+            AppOutlinedButton(onClick = {
+                ctx.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, ctx.packageName))
+            }) { Text("notification settings") }
         }
         Panel {
             Text("background", style = MaterialTheme.typography.titleMedium)
@@ -238,29 +332,113 @@ private fun BehaviorSection(onBack: () -> Unit) {
                 }) { Text("app settings") }
             }
         }
+    }
+}
+
+@Composable
+private fun PrivacySection(onBack: () -> Unit) {
+    val ctx = LocalContext.current
+    var forgetAll by remember { mutableStateOf(false) }
+    val tick = rememberSystemTick()
+    fun granted(p: String) = tick >= 0 && ctx.checkSelfPermission(p) == android.content.pm.PackageManager.PERMISSION_GRANTED
+    val notif = tick >= 0 && ctx.getSystemService(NotificationManager::class.java).areNotificationsEnabled()
+    val batt = tick >= 0 && ctx.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(ctx.packageName)
+
+    SubScreen("privacy and security", onBack) {
         Panel {
-            Text("notifications", style = MaterialTheme.typography.titleMedium)
+            Text("connections", style = MaterialTheme.typography.titleMedium)
             Text(
-                if (notificationsOn) "on" else "off",
+                "connections to the pc use tls and a pinned certificate. nothing is sent to the cloud",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+        Panel {
+            Text("permissions", style = MaterialTheme.typography.titleMedium)
+            listOf(
+                "notifications" to notif,
+                "camera (qr scanner)" to granted(Manifest.permission.CAMERA),
+                "nearby wi-fi (hotspot only)" to granted(Manifest.permission.NEARBY_WIFI_DEVICES),
+                "location (hotspot only)" to granted(Manifest.permission.ACCESS_FINE_LOCATION),
+                "ignore battery optimization" to batt,
+            ).forEach { (n, ok) ->
+                Row(Modifier.fillMaxWidth().padding(top = 6.dp)) {
+                    Text(n, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                    Text(
+                        if (ok) "granted" else "not granted",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
             Spacer(Modifier.height(8.dp))
             AppOutlinedButton(onClick = {
-                ctx.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, ctx.packageName))
-            }) { Text("notification settings") }
+                ctx.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${ctx.packageName}")))
+            }) { Text("app settings") }
         }
-        AppOutlinedButton(onClick = { clearing = true }, modifier = Modifier.fillMaxWidth()) { Text("clear history") }
+        if (Link.known.isNotEmpty()) {
+            AppOutlinedButton(onClick = { forgetAll = true }, modifier = Modifier.fillMaxWidth()) { Text("forget all devices") }
+        }
     }
 
-    if (clearing) {
+    if (forgetAll) {
         AlertDialog(
-            onDismissRequest = { clearing = false },
-            title = { Text("clear history?") },
-            text = { Text("received files stay in Download/proxylink") },
-            confirmButton = { TextButton(onClick = { History.clear(); clearing = false }) { Text("clear") } },
-            dismissButton = { TextButton(onClick = { clearing = false }) { Text("cancel") } },
+            onDismissRequest = { forgetAll = false },
+            title = { Text("forget all devices?") },
+            text = { Text("you will need to pair every device again") },
+            confirmButton = {
+                TextButton(onClick = { Link.known.toList().forEach { Link.forget(it.id) }; forgetAll = false }) { Text("forget") }
+            },
+            dismissButton = { TextButton(onClick = { forgetAll = false }) { Text("cancel") } },
         )
+    }
+}
+
+@Composable
+private fun DiagnosticsSection(onBack: () -> Unit) {
+    val ctx = LocalContext.current
+    val tick = rememberSystemTick()
+    val version = remember { runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: "" }
+    val notif = tick >= 0 && ctx.getSystemService(NotificationManager::class.java).areNotificationsEnabled()
+    val batt = tick >= 0 && ctx.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(ctx.packageName)
+    var copied by remember { mutableStateOf(false) }
+
+    // no names, ids, addresses, passwords, tokens or clipboard content
+    val summary = listOf(
+        "proxylink $version",
+        "android ${android.os.Build.VERSION.RELEASE} (sdk ${android.os.Build.VERSION.SDK_INT})",
+        "link state: ${Link.state}",
+        "searching for a paired device: ${Link.reconnecting != null}",
+        "last connect attempt: ${if (Link.lastAttempt > 0) DateUtils.formatDateTime(ctx, Link.lastAttempt, DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_SHOW_TIME or DateUtils.FORMAT_ABBREV_ALL) else "none"}",
+        "last connect error: ${Link.lastError ?: "none"}",
+        "last successful connect: ${Link.known.maxOfOrNull { it.lastConnected }?.takeIf { it > 0 }?.let { DateUtils.formatDateTime(ctx, it, DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_SHOW_TIME or DateUtils.FORMAT_ABBREV_ALL) } ?: "none"}",
+        "failed attempts in a row: ${Link.retries}",
+        "background service running: ${LinkService.running}",
+        "disconnected by the user: ${Link.prefs.userDisconnected}",
+        "latency: ${if (Link.latency >= 0) "${Link.latency} ms" else "n/a"}",
+        "paired devices: ${Link.known.size}",
+        "notifications enabled: $notif",
+        "battery optimization ignored: $batt",
+        "clipboard sync: ${Link.autoSync}",
+        "auto connect: ${Link.prefs.autoConnect}",
+    ).joinToString("\n")
+
+    SubScreen("diagnostics", onBack) {
+        Panel { Text(summary, style = MonoStyle) }
+        Text(
+            "contains no device names, addresses, passwords, tokens or clipboard content",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        AppOutlinedButton(onClick = {
+            val clip = android.content.ClipData.newPlainText("proxylink diagnostics", summary)
+            // marked sensitive so android 13 does not show a preview of it
+            clip.description.extras = android.os.PersistableBundle().apply {
+                putBoolean(android.content.ClipDescription.EXTRA_IS_SENSITIVE, true)
+            }
+            ctx.getSystemService(android.content.ClipboardManager::class.java).setPrimaryClip(clip)
+            copied = true
+        }, modifier = Modifier.fillMaxWidth()) { Text(if (copied) "copied" else "copy summary") }
     }
 }
 
@@ -272,6 +450,7 @@ private fun AboutSection(onBack: () -> Unit) {
         Panel {
             Text("proxylink", style = MaterialTheme.typography.titleMedium)
             Text(version, style = MonoStyle, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("by Vojtěch Hojda", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Panel {
             Text("everything stays on your devices", style = MaterialTheme.typography.bodyLarge)
