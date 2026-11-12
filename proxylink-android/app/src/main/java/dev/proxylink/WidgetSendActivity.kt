@@ -16,15 +16,16 @@ import dev.proxylink.core.LinkState
 // nothing is sent without that choice. without a connection the picker is not opened at all
 class WidgetSendActivity : ComponentActivity() {
     private val pickFiles = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
-        uris.forEach { u ->
+        // sendFile is false when a chosen file could not be opened; the message says only what really started
+        val started = uris.count { u ->
             runCatching { contentResolver.takePersistableUriPermission(u, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
             Link.sendFile(u)
         }
-        finishWith(uris)
+        finishWith(uris, started)
     }
     private val pickPhotos = registerForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { uris ->
         uris.forEach { Link.sendImage(it) }
-        finishWith(uris)
+        finishWith(uris, uris.size)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -45,8 +46,15 @@ class WidgetSendActivity : ComponentActivity() {
         }
     }
 
-    private fun finishWith(uris: List<Uri>) {
-        if (uris.isNotEmpty()) Toast.makeText(this, R.string.toast_widget_sent, Toast.LENGTH_SHORT).show()
+    private fun finishWith(uris: List<Uri>, started: Int) {
+        if (uris.isNotEmpty()) {
+            val text = when {
+                started == 0 -> getString(R.string.share_open_failed)
+                started < uris.size -> getString(R.string.share_open_partial, uris.size - started, Link.pcName)
+                else -> getString(R.string.toast_widget_sent)
+            }
+            Toast.makeText(this, text, Toast.LENGTH_LONG).show()
+        }
         finish()
     }
 

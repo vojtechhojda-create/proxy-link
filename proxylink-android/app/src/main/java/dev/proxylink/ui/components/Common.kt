@@ -176,7 +176,7 @@ fun SendButtons(actions: SendActions) {
 
 @Composable
 private fun SendButtonItems(actions: SendActions, m: Modifier) {
-    val connected = Link.state == LinkState.CONNECTED
+    val connected = Link.state == LinkState.CONNECTED && !Link.transfersBlocked
     SendButton(stringResource(R.string.btn_file), Icons.Default.AttachFile, connected && Capabilities.supports(Feature.FILES), actions.file, m)
     SendButton(stringResource(R.string.btn_image), Icons.Default.Image, connected && Capabilities.supports(Feature.FILES), actions.image, m)
     if (Link.clipEnabled) {
@@ -219,6 +219,8 @@ fun TransferRow(t: Transfer) {
         "active" -> stringResource(if (t.outgoing) R.string.tr_sending else R.string.tr_receiving)
         "done" -> stringResource(if (t.outgoing) R.string.tr_done_out else R.string.tr_done_in)
         "denied" -> stringResource(R.string.tr_denied)
+        "cancelled" -> stringResource(R.string.tr_cancelled)
+        "timeout" -> stringResource(R.string.tr_timeout)
         else -> stringResource(R.string.tr_failed)
     }
     val bad = t.status == "failed" || t.status == "denied"
@@ -237,6 +239,12 @@ fun TransferRow(t: Transfer) {
             style = MaterialTheme.typography.bodySmall,
             color = if (bad) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        // the only transfer control the protocol allows from this phone; there is no pause, the pc has no such message
+        if (t.status == "active" || t.status == "waiting") {
+            TextButton(onClick = { Link.cancelTransfer(t.sid) }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)) {
+                Text(stringResource(R.string.cancel))
+            }
+        }
     }
 }
 

@@ -102,9 +102,19 @@ fun ShareConfirm(uris: List<Uri>, text: String?, shortcutId: String?, onDone: ()
         runCatching { ctx.startForegroundService(android.content.Intent(ctx, LinkService::class.java)) }
         val prev = Link.targetId
         Link.targetId = if (isDev) id else null
-        if (uris.isNotEmpty()) uris.forEach { Link.sendFile(it) } else if (!text.isNullOrBlank()) Link.sendText(text)
+        // sendFile is false when the shared file could not be opened; the message says only what really started
+        val total = if (uris.isNotEmpty()) uris.size else 1
+        val started = if (uris.isNotEmpty()) uris.count { Link.sendFile(it) } else if (!text.isNullOrBlank()) { Link.sendText(text); 1 } else 0
         Link.targetId = prev
-        Toast.makeText(ctx, ctx.getString(R.string.toast_sent_to, name), Toast.LENGTH_SHORT).show()
+        Toast.makeText(
+            ctx,
+            when {
+                started == 0 -> ctx.getString(R.string.share_open_failed)
+                started < total -> ctx.getString(R.string.share_open_partial, total - started, name)
+                else -> ctx.getString(R.string.toast_sent_to, name)
+            },
+            Toast.LENGTH_LONG,
+        ).show()
         onDone()
     }
 
@@ -184,6 +194,14 @@ fun ShareConfirm(uris: List<Uri>, text: String?, shortcutId: String?, onDone: ()
                 }
                 if (k == null) {
                     Text(stringResource(R.string.share_no_paired), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+
+                // why the send button is dimmed when the target itself is connected: the pc lacks the feature
+                if (ready && hasContent && !canSend) {
+                    Text(
+                        stringResource(if (uris.isNotEmpty()) R.string.qa_files_unsupported else R.string.share_text_unsupported),
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
 
                 AdaptiveButtons {

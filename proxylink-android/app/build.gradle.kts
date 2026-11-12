@@ -11,8 +11,8 @@ android {
         applicationId = "dev.proxylink"
         minSdk = 33
         targetSdk = 33
-        versionCode = 4
-        versionName = "2.0.0-alpha.4"
+        versionCode = 5
+        versionName = "2.2.2"
     }
     buildFeatures { compose = true }
     compileOptions {

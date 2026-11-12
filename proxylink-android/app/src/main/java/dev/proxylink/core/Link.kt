@@ -83,7 +83,7 @@ data class Transfer(
     val size: Long,
     val bytes: Long,
     val outgoing: Boolean,
-    val status: String, // waiting | active | done | failed | denied
+    val status: String, // waiting | active | done | failed | denied | cancelled | timeout
     val ts: Long = System.currentTimeMillis(),
     val who: String = "",
 )
@@ -106,11 +106,20 @@ object Link {
     private lateinit var app: Context
     private lateinit var discovery: Discovery
     private val main = Handler(Looper.getMainLooper())
+
+    // outgoing transfers cancelled on this phone; the pump and a late "share.accept" look here
+    private val cancelledSids = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
+    // an outgoing request nobody answers is dropped after this time (the file stream is not held forever)
+    private const val WAIT_ANSWER_MS = 300_000L
     private val io = Executors.newSingleThreadExecutor()          // incoming writes, keeps order
     private val sender = Executors.newCachedThreadPool()          // outgoing file pumps
     private val listeners = CopyOnWriteArrayList<(LinkState) -> Unit>()
 
     @Volatile private var expectedFp = ""
+
+    // proven mismatch of the app signature with the configured release fingerprint: no content is sent or received (see AppIdentity).
+    // devices, history and settings stay as they are
+    val transfersBlocked: Boolean get() = this::app.isInitialized && AppIdentity.state(app) == IdentityState.MISMATCH
 
     // trust only the pc certificate whose sha-256 fingerprint we pinned (qr, mdns on first pairing, then stored)
     private val trust = object : X509TrustManager {
@@ -497,7 +506,7 @@ object Link {
                     m.optString("from", ""),
                 )
                 val valid = r.sid.length == 36 && r.kind in listOf("text", "link", "file") && r.size in 0..MAX_FILE
-                if (!valid) tx(mapOf("t" to "share.deny", "sid" to r.sid))
+                if (!valid || transfersBlocked) tx(mapOf("t" to "share.deny", "sid" to r.sid))
                 else if (prefs.autoAccept && (r.kind != "file" || prefs.autoAcceptMaxMb == 0 || r.size <= prefs.autoAcceptMaxMb * 1_048_576L)) accept(r)
                 else { requests.add(r); Notifier.request(app, r, pcName) }
             }
@@ -515,10 +524,14 @@ object Link {
                     tx(mapOf("t" to "share.text", "sid" to sid, "kind" to it.kind, "text" to it.text))
                     History.add(it)
                 }
-                pendingFiles.remove(sid)?.let { startPump(sid, it) }
+                val pf = pendingFiles.remove(sid)
+                if (pf != null) startPump(sid, pf)
+                // accepted after this phone cancelled or gave up: the pc already waits for data, so it is told the file is incomplete
+                else if (cancelledSids.remove(sid)) tx(mapOf("t" to "share.done", "sid" to sid, "sha256" to "cancelled"))
             }
             "share.deny" -> {
                 val sid = m.getString("sid")
+                cancelledSids.remove(sid)
                 pendingText.remove(sid)
                 pendingFiles.remove(sid)?.let {
                     runCatching { it.stream.close() }
@@ -528,14 +541,14 @@ object Link {
             "share.ok" -> {
                 val sid = m.getString("sid")
                 val ok = m.optBoolean("ok")
-                transfers[sid]?.let { t ->
+                transfers[sid]?.takeIf { it.status != "cancelled" && it.status != "timeout" }?.let { t ->
                     transfers[sid] = t.copy(status = if (ok) "done" else "failed", bytes = if (ok) t.size else t.bytes)
                     if (ok) outMeta.remove(sid)?.let { (uri, mime) ->
                         History.add(Item("file", t.name, prefs.name, uri = uri, dir = "out", size = t.size, mime = mime))
                     }
                 }
             }
-            "clip.update" -> if (clipAuto(clipReceive) && !guest) {
+            "clip.update" -> if (clipAuto(clipReceive) && !guest && !transfersBlocked) {
                 val t = m.getString("text")
                 if (sha(t) != clipHash) {
                     clipHash = sha(t)
@@ -648,7 +661,7 @@ object Link {
     // ---- outgoing (target = null means the pc, otherwise relayed by the pc to that device) ----
 
     fun sendText(text: String) {
-        if (state != LinkState.CONNECTED || text.isBlank()) return
+        if (state != LinkState.CONNECTED || text.isBlank() || transfersBlocked) return
         val sid = UUID.randomUUID().toString()
         val kind = if (text.startsWith("http://") || text.startsWith("https://")) "link" else "text"
         pendingText[sid] = Item(kind, text, prefs.name, dir = "out", size = text.length.toLong())
@@ -661,7 +674,7 @@ object Link {
 
     // opens the stream immediately so a share-sheet uri permission can expire afterwards. false = not sent
     fun sendFile(uri: Uri, nameOverride: String? = null, mimeOverride: String? = null): Boolean {
-        if (state != LinkState.CONNECTED) return false
+        if (state != LinkState.CONNECTED || transfersBlocked) return false
         val cr = app.contentResolver
         var name = "file"
         var size = -1L
@@ -689,6 +702,7 @@ object Link {
         )
         target?.let { m["to"] = it.id }
         tx(m)
+        main.postDelayed({ if (transfers[sid]?.status == "waiting") cancelTransfer(sid, "timeout") }, WAIT_ANSWER_MS)
         return true
     }
 
@@ -729,9 +743,11 @@ object Link {
             var sentBytes = 0L
             var reported = 0L
             var failed = false
+            var cancelled = false
             try {
                 f.stream.use { s ->
                     while (true) {
+                        if (sid in cancelledSids) { cancelled = true; break }
                         val n = s.read(buf)
                         if (n <= 0) break
                         digest.update(buf, 0, n)
@@ -750,6 +766,12 @@ object Link {
             } catch (_: Exception) {
                 failed = true
             }
+            if (cancelled) {
+                // no cancel message exists in the protocol: "done" with a checksum that cannot match makes the pc drop the partial file
+                cancelledSids.remove(sid)
+                sock.send(JSONObject(mapOf("t" to "share.done", "sid" to sid, "sha256" to "cancelled")).toString())
+                return@execute
+            }
             if (failed) {
                 setTransfer(sid, f.name, f.size, sentBytes, true, "failed", f.who)
             } else {
@@ -764,15 +786,44 @@ object Link {
     ) {
         main.post {
             val old = transfers[sid]
-            transfers[sid] = Transfer(
+            // a late progress report must not bring a cancelled transfer back
+            if (old != null && (old.status == "cancelled" || old.status == "timeout") && (status == "active" || status == "waiting")) return@post
+            val t = Transfer(
                 sid, name, size, bytes, outgoing, status,
                 old?.ts ?: System.currentTimeMillis(),
                 who.ifBlank { old?.who ?: "" },
             )
+            transfers[sid] = t
+            Notifier.transfer(app, t)
         }
     }
 
+    // cancels one running or waiting transfer from this phone. a finished or already cancelled one is ignored, so an old
+    // notification can never control another transfer. incoming: the file is deleted and the pc is told it failed (it may still
+    // send the rest of the data, which is dropped). outgoing: see cancelledSids; a request still waiting for an answer is
+    // dropped here and the pc is not told until it answers
+    fun cancelTransfer(sid: String, reason: String = "cancelled") {
+        val t = transfers[sid] ?: return
+        if (t.status != "active" && t.status != "waiting") return
+        if (t.outgoing) {
+            if (!cancelledSids.add(sid)) return
+            pendingFiles.remove(sid)?.let { runCatching { it.stream.close() } }
+            pendingText.remove(sid)
+            outMeta.remove(sid)
+        } else {
+            val f = incoming.remove(sid) ?: return
+            io.execute {
+                runCatching { f.out.close() }
+                runCatching { app.contentResolver.delete(f.uri, null, null) }
+            }
+            tx(mapOf("t" to "share.ok", "sid" to sid, "ok" to false))
+        }
+        setTransfer(sid, t.name, t.size, t.bytes, t.outgoing, reason, t.who)
+    }
+
     private fun abortTransfers() {
+        requests.forEach { Notifier.cancel(app, it.sid) }
+        cancelledSids.clear()
         pendingFiles.values.forEach { runCatching { it.stream.close() } }
         pendingFiles.clear(); pendingText.clear(); meta.clear(); requests.clear(); outMeta.clear()
         val live = incoming.values.toList()
@@ -785,7 +836,11 @@ object Link {
         }
         transfers.keys.toList().forEach { k ->
             val t = transfers[k] ?: return@forEach
-            if (t.status == "active" || t.status == "waiting") transfers[k] = t.copy(status = "failed")
+            if (t.status == "active" || t.status == "waiting") {
+                val failed = t.copy(status = "failed")
+                transfers[k] = failed
+                Notifier.transfer(app, failed)
+            }
         }
     }
 
@@ -797,7 +852,7 @@ object Link {
     fun sendClipboardNow(): Boolean = doPushClipboard(true)
 
     private fun doPushClipboard(manual: Boolean): Boolean {
-        if (!clipEnabled || state != LinkState.CONNECTED || guest || (!manual && !clipAuto(clipSend))) return false
+        if (!clipEnabled || state != LinkState.CONNECTED || guest || transfersBlocked || (!manual && !clipAuto(clipSend))) return false
         val cm = app.getSystemService(ClipboardManager::class.java)
         val clip = cm.primaryClip?.takeIf { it.itemCount > 0 } ?: return false
         // text the source app marked as sensitive (passwords, one time codes) is never sent automatically

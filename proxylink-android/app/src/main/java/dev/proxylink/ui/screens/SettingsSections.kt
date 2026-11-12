@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Devices
+import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.foundation.selection.selectable
@@ -46,6 +47,8 @@ import dev.proxylink.core.KnownDevice
 import dev.proxylink.core.Link
 import dev.proxylink.core.LinkState
 import dev.proxylink.ui.components.*
+import dev.proxylink.core.AppIdentity
+import dev.proxylink.core.IdentityState
 import dev.proxylink.ui.theme.AppFont
 import dev.proxylink.ui.theme.FontStore
 import dev.proxylink.ui.theme.MonoStyle
@@ -65,7 +68,8 @@ fun SettingsSection(section: String, onBack: () -> Unit, onScan: () -> Unit, onO
         "clipboard" -> ClipboardSection(onBack)
         "transfers" -> TransfersSection(onBack)
         "notifications" -> NotificationsSection(onBack)
-        "privacy" -> PrivacySection(onBack)
+        "privacy" -> PrivacySection(onBack, onOpen)
+        "hash" -> HashSection(onBack)
         "diagnostics" -> DiagnosticsSection(onBack)
         else -> AboutSection(onBack, onOpen)
     }
@@ -103,7 +107,7 @@ private fun DevicesSection(onBack: () -> Unit, onScan: () -> Unit) {
                         if (Link.lastAttempt > 0 && Link.lastAttemptId == d.id) {
                             Text(
                                 stringResource(R.string.last_attempt, DateUtils.formatDateTime(ctx, Link.lastAttempt, DateUtils.FORMAT_SHOW_TIME)) +
-                                    (Link.lastError?.let { ": $it" } ?: ""),
+                                    (Link.lastError?.let { ": " + linkErrorText(it) } ?: ""),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(top = 4.dp),
@@ -563,6 +567,7 @@ private fun NotificationsSection(onBack: () -> Unit) {
     val ctx = LocalContext.current
     var boot by remember { mutableStateOf(Link.prefs.startOnBoot) }
     var haptics by remember { mutableStateOf(Link.prefs.haptics) }
+    var hideContent by remember { mutableStateOf(Link.prefs.notifHideContent) }
     var tick by remember { mutableIntStateOf(0) }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { tick++ }
     val exempt = tick >= 0 && ctx.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(ctx.packageName)
@@ -573,6 +578,9 @@ private fun NotificationsSection(onBack: () -> Unit) {
         Panel {
             SwitchRow(stringResource(R.string.start_after_reboot), null, boot) { boot = it; Link.prefs.startOnBoot = it }
             SwitchRow(stringResource(R.string.haptic_feedback), null, haptics) { haptics = it; Link.prefs.haptics = it }
+        }
+        Panel {
+            SwitchRow(stringResource(R.string.notif_hide), stringResource(R.string.notif_hide_desc), hideContent) { hideContent = it; Link.prefs.notifHideContent = it }
         }
         Panel {
             Text(stringResource(R.string.notifications), style = MaterialTheme.typography.titleMedium)
@@ -609,7 +617,7 @@ private fun NotificationsSection(onBack: () -> Unit) {
 }
 
 @Composable
-private fun PrivacySection(onBack: () -> Unit) {
+private fun PrivacySection(onBack: () -> Unit, onOpen: (String) -> Unit) {
     val ctx = LocalContext.current
     var forgetAll by remember { mutableStateOf(false) }
     val tick = rememberSystemTick()
@@ -649,6 +657,7 @@ private fun PrivacySection(onBack: () -> Unit) {
                 ctx.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${ctx.packageName}")))
             }) { Text(stringResource(R.string.app_settings)) }
         }
+        Panel { NavRow(stringResource(R.string.title_hash), Icons.Default.Fingerprint) { onOpen("hash") } }
         if (Link.known.isNotEmpty()) {
             AppOutlinedButton(onClick = { forgetAll = true }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.forget_all)) }
         }
@@ -697,6 +706,7 @@ private fun DiagnosticsSection(onBack: () -> Unit) {
         "auto accept: ${Link.prefs.autoAccept}, ask above mb: ${Link.prefs.autoAcceptMaxMb}",
         "pc protocol: ${if (Capabilities.protocol > 0) Capabilities.protocol.toString() else "n/a"}, clipboard supported: ${Capabilities.supports(Feature.CLIPBOARD)}",
         "auto connect: ${Link.prefs.autoConnect}",
+        "app signature check: ${AppIdentity.state(ctx)}",
     ).joinToString("\n")
 
     SubScreen(stringResource(R.string.title_diagnostics), onBack) {
@@ -737,6 +747,7 @@ private fun AboutSection(onBack: () -> Unit, onOpen: (String) -> Unit) {
             )
         }
         SectionTitle(stringResource(R.string.sec_title))
+        AppSignaturePanel()
         // general description first, then the state of the connection right now. every statement is backed by the code (see PROJECT_STATUS.md)
         Panel {
             Text(
@@ -780,3 +791,50 @@ private fun AboutSection(onBack: () -> Unit, onOpen: (String) -> Unit) {
         }
     }
 }
+
+// signature of this installed app: the real state of the local check, the fingerprint it found and what the check cannot do.
+// it is not the fingerprint of a file, and not the identity of the other device
+@Composable
+private fun AppSignaturePanel() {
+    val ctx = LocalContext.current
+    val st = remember { AppIdentity.state(ctx) }
+    val fps = remember { AppIdentity.signerFingerprints(ctx) }
+    var copied by remember { mutableStateOf(false) }
+    Panel {
+        Text(stringResource(R.string.id_title), style = MaterialTheme.typography.titleSmall)
+        Text(
+            stringResource(
+                when (st) {
+                    IdentityState.DEBUG -> R.string.id_debug
+                    IdentityState.NOT_CONFIGURED -> R.string.id_not_configured
+                    IdentityState.UNKNOWN -> R.string.id_unknown
+                    IdentityState.MATCH -> R.string.id_match
+                    IdentityState.MISMATCH -> R.string.id_mismatch
+                },
+            ),
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (st == IdentityState.MISMATCH) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+        )
+        fps.forEach { Text(it, style = MonoStyle, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        if (fps.isNotEmpty()) {
+            TextButton(onClick = {
+                ctx.getSystemService(android.content.ClipboardManager::class.java)
+                    .setPrimaryClip(android.content.ClipData.newPlainText("sha-256", fps.joinToString("\n")))
+                copied = true
+            }) { Text(stringResource(if (copied) R.string.copied else R.string.hash_copy)) }
+        }
+        Text(stringResource(R.string.id_limits), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+// the connection error is kept as a plain code in Link (diagnostics show it as it is); the screen translates it.
+// the certificate case is an identity mismatch: the connection is refused and nothing is sent, it is never skipped by a dialog
+@Composable
+private fun linkErrorText(e: String): String = stringResource(
+    when (e) {
+        "certificate does not match the paired device" -> R.string.err_cert
+        "timeout" -> R.string.err_timeout
+        "device not reachable" -> R.string.err_unreachable
+        else -> R.string.err_lost
+    },
+)

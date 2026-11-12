@@ -54,6 +54,11 @@ class Prefs(ctx: Context) {
         get() = sp.getString("shape", null) ?: "default"
         set(v) = sp.edit().putString("shape", v).apply()
 
+    // notifications show a generic text on the lock screen. the system lock screen setting can still allow full content
+    var notifHideContent: Boolean
+        get() = sp.getBoolean("notifhide", true)
+        set(v) = sp.edit().putBoolean("notifhide", v).apply()
+
     var dynamicColor: Boolean
         get() = sp.getBoolean("dynamic", false)
         set(v) = sp.edit().putBoolean("dynamic", v).apply()

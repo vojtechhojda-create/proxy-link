@@ -35,6 +35,7 @@ fun QuickActionsPanel(actions: SendActions) {
             TargetStatus()
             TargetPicker()
             SendButtons(actions)
+            if (Link.transfersBlocked) QuickNote(stringResource(R.string.id_blocked_note))
             // why a button is dimmed: a missing pc capability or the guest connection, never presented as "switched off"
             if (connected && !Capabilities.supports(Feature.FILES)) QuickNote(stringResource(R.string.qa_files_unsupported))
             else if (connected && Link.guest && Link.clipEnabled) QuickNote(stringResource(R.string.clip_status_guest))

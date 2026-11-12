@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- public sha-256 fingerprints (64 hex characters) of the release signing certificate of this app. leave empty until the
+         real value is known: with an empty list the signature check reports "not verified" and blocks nothing.
+         two entries (old and new) cover a legitimate rotation of the signing key. never put a private key here -->
+    <string-array name="release_cert_sha256" translatable="false">
+    </string-array>
+</resources>
