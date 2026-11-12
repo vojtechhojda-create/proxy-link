@@ -1,32 +1,26 @@
 package dev.proxylink
 
-import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
-import android.widget.Toast
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
 import dev.proxylink.core.Link
-import dev.proxylink.core.LinkState
+import dev.proxylink.ui.screens.ShareConfirm
+import dev.proxylink.ui.theme.FontStore
+import dev.proxylink.ui.theme.ShapeStore
+import dev.proxylink.ui.theme.PaletteStore
+import dev.proxylink.ui.theme.ProxylinkTheme
 
-// target of the android share sheet (also the direct share shortcuts) and of the text selection menu
-class ShareActivity : Activity() {
+// target of the android share sheet (also the direct share shortcuts) and of the text selection menu.
+// nothing is sent here by itself: the shared content waits in this screen until the user confirms, also while the connection is made
+class ShareActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Link.init(this)
-        if (Link.state != LinkState.CONNECTED) {
-            Toast.makeText(this, "proxylink: not connected to pc", Toast.LENGTH_SHORT).show()
-            finish()
-            return
-        }
-
-        // direct share shortcut id: "pc" or the id of another device
-        val sc = intent.getStringExtra(Intent.EXTRA_SHORTCUT_ID)
-        val target = if (sc == null || sc == "pc") null else Link.others.firstOrNull { it.id == sc }
-        if (sc != null && sc != "pc" && target == null) {
-            Toast.makeText(this, "proxylink: that device is not connected", Toast.LENGTH_SHORT).show()
-            finish()
-            return
-        }
+        PaletteStore.load(Link.prefs.palette, Link.prefs.dynamicColor)
+        FontStore.load(Link.prefs.font)
+        ShapeStore.load(Link.prefs.shape)
 
         val uris: List<Uri> = when (intent.action) {
             Intent.ACTION_SEND -> listOfNotNull(intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java))
@@ -36,13 +30,12 @@ class ShareActivity : Activity() {
         }
         val text = intent.getStringExtra(Intent.EXTRA_TEXT)
             ?: intent.getCharSequenceExtra(Intent.EXTRA_PROCESS_TEXT)?.toString()
+        if (uris.isEmpty() && text.isNullOrBlank()) { finish(); return }
 
-        val previous = Link.targetId
-        Link.targetId = target?.id
-        if (uris.isNotEmpty()) uris.forEach { Link.sendFile(it) }
-        else if (!text.isNullOrBlank()) Link.sendText(text)
-        Link.targetId = previous
-        Toast.makeText(this, "sent to ${target?.name ?: Link.pcName}", Toast.LENGTH_SHORT).show()
-        finish()
+        setContent {
+            ProxylinkTheme {
+                ShareConfirm(uris, text, intent.getStringExtra(Intent.EXTRA_SHORTCUT_ID), onDone = { finish() })
+            }
+        }
     }
 }

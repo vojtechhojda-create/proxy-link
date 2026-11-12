@@ -11,6 +11,22 @@ data class KnownDevice(val id: String, val name: String, val lastConnected: Long
 class Prefs(ctx: Context) {
     private val sp = ctx.getSharedPreferences("proxylink", Context.MODE_PRIVATE)
 
+    init { migrate() }
+
+    // brings values stored by older versions to the current layout. nothing is deleted, old keys stay (a downgrade keeps working)
+    private fun migrate() {
+        if (sp.getInt("schema", 1) >= SCHEMA) return
+        val e = sp.edit()
+        // 1 -> 2: clipboard send / receive get their own stored value (they followed the old "autosync" switch),
+        // users who already kept the clipboard history keep it without the new limits, an unknown image quality goes back to original
+        val auto = sp.getBoolean("autosync", true)
+        if (!sp.contains("clipsend")) e.putBoolean("clipsend", auto)
+        if (!sp.contains("cliprecv")) e.putBoolean("cliprecv", auto)
+        if (sp.getBoolean("cliphist", false)) { e.putInt("clipmax", 0); e.putInt("clipdays", 0) }
+        if (sp.getString("imgq", null) !in listOf<String?>(null, "original", "high", "economy")) e.remove("imgq")
+        e.putInt("schema", SCHEMA).apply()
+    }
+
     val id: String = sp.getString("id", null)
         ?: UUID.randomUUID().toString().also { sp.edit().putString("id", it).apply() }
 
@@ -28,6 +44,16 @@ class Prefs(ctx: Context) {
         get() = sp.getBoolean("paletteicon", false)
         set(v) = sp.edit().putBoolean("paletteicon", v).apply()
 
+    // main ui font: default, inter, plex, atkinson or system (see ui/theme/Type.kt)
+    var font: String
+        get() = sp.getString("font", null) ?: "default"
+        set(v) = sp.edit().putString("font", v).apply()
+
+    // corner style of the whole ui: square, default or round (see ui/theme/Shape.kt)
+    var shape: String
+        get() = sp.getString("shape", null) ?: "default"
+        set(v) = sp.edit().putString("shape", v).apply()
+
     var dynamicColor: Boolean
         get() = sp.getBoolean("dynamic", false)
         set(v) = sp.edit().putBoolean("dynamic", v).apply()
@@ -36,6 +62,11 @@ class Prefs(ctx: Context) {
     var imageQuality: String
         get() = sp.getString("imgq", "original") ?: "original"
         set(v) = sp.edit().putString("imgq", v).apply()
+
+    // the clipboard feature as a whole. off = no automatic sync, no send button anywhere, nothing recorded; stored data stays
+    var clipEnabled: Boolean
+        get() = sp.getBoolean("clipon", true)
+        set(v) = sp.edit().putBoolean("clipon", v).apply()
 
     // clipboard. send and receive are separate; the old single "autosync" value is the default for both
     var clipSend: Boolean
@@ -55,6 +86,25 @@ class Prefs(ctx: Context) {
     var clipHistory: Boolean
         get() = sp.getBoolean("cliphist", false)
         set(v) = sp.edit().putBoolean("cliphist", v).apply()
+
+    // limits of the clipboard history: newest N items (0 = no limit) and days to keep them (0 = keep). files are not affected
+    var clipHistoryMax: Int
+        get() = sp.getInt("clipmax", 100)
+        set(v) = sp.edit().putInt("clipmax", v).apply()
+
+    var clipHistoryDays: Int
+        get() = sp.getInt("clipdays", 30)
+        set(v) = sp.edit().putInt("clipdays", v).apply()
+
+    // open a received file right away while the app is on screen (off by default)
+    var openAfterReceive: Boolean
+        get() = sp.getBoolean("openrecv", false)
+        set(v) = sp.edit().putBoolean("openrecv", v).apply()
+
+    // with "accept automatically" on, files bigger than this many MB still ask first (0 = no limit)
+    var autoAcceptMaxMb: Int
+        get() = sp.getInt("acceptmax", 0)
+        set(v) = sp.edit().putInt("acceptmax", v).apply()
 
     // true = accept requests from the paired pc without asking
     var autoAccept: Boolean
@@ -99,6 +149,8 @@ class Prefs(ctx: Context) {
             KnownDevice(o.getString("id"), o.getString("name"), o.optLong("last"))
         }
     }
+
+    companion object { const val SCHEMA = 2 }
 
     fun remember(id: String, name: String) {
         val list = knownDevices().filter { it.id != id } + KnownDevice(id, name, System.currentTimeMillis())

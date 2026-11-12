@@ -19,6 +19,7 @@
     <uses-feature android:name="android.hardware.nfc" android:required="false" />
 
     <application
+        android:allowBackup="false"
         android:enableOnBackInvokedCallback="true"
         android:icon="@mipmap/ic_launcher"
         android:label="proxylink"
@@ -103,6 +104,12 @@
             android:excludeFromRecents="true"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
+        <activity
+            android:name=".WidgetSendActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
         <service
             android:name=".LinkService"
             android:exported="false"
@@ -133,8 +140,33 @@
             android:exported="false" />
 
         <receiver
+            android:name=".ActionsWidget"
+            android:exported="false"
+            android:label="@string/widget_actions_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/actions_widget_info" />
+        </receiver>
+
+        <receiver
+            android:name=".StatusWidget"
+            android:exported="false"
+            android:label="@string/widget_status_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/status_widget_info" />
+        </receiver>
+
+        <receiver
             android:name=".ClipWidget"
-            android:exported="false">
+            android:exported="false"
+            android:label="@string/widget_clip_label">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>

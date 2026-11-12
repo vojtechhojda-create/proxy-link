@@ -73,20 +73,20 @@ fun NotConnectedScreen(onScan: () -> Unit, onNfc: () -> Unit) {
         Panel {
             Text(
                 when (Link.state) {
-                    LinkState.CONNECTING -> "connecting to ${Link.pcName}"
-                    LinkState.NEEDS_PAIR -> "pairing required"
-                    else -> "not connected"
+                    LinkState.CONNECTING -> stringResource(R.string.nc_connecting, Link.pcName)
+                    LinkState.NEEDS_PAIR -> stringResource(R.string.nc_needs_pair)
+                    else -> stringResource(R.string.nc_not_connected)
                 },
                 style = MaterialTheme.typography.titleMedium,
             )
             if (Link.pairError) {
-                Text("pairing failed or the code expired", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                Text(stringResource(R.string.nc_pair_failed), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             }
         }
 
-        SectionTitle("connect")
+        SectionTitle(stringResource(R.string.nc_connect))
         Panel {
-            ActionRow(Icons.Default.QrCodeScanner, "scan qr code", onClick = onScan)
+            ActionRow(Icons.Default.QrCodeScanner, stringResource(R.string.nc_scan_qr), onClick = onScan)
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             // the nfc screen itself explains a switched off nfc and offers the system settings
             if (adapter == null) ActionRow(Icons.Default.Nfc, "nfc", stringResource(R.string.nfc_unsupported), enabled = false) {}
@@ -94,12 +94,12 @@ fun NotConnectedScreen(onScan: () -> Unit, onNfc: () -> Unit) {
             // new devices found on the network that are not paired yet
             Link.peers.filter { Link.prefs.secret(it.id) == null }.forEach { p ->
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                ActionRow(Icons.Default.Devices, p.name, "enter code") { pairFor = p }
+                ActionRow(Icons.Default.Devices, p.name, stringResource(R.string.nc_enter_code)) { pairFor = p }
             }
         }
 
         if (Link.known.isNotEmpty()) {
-            SectionTitle("paired devices")
+            SectionTitle(stringResource(R.string.nc_paired_devices))
             Link.known.forEach { d ->
                 val inRange = Link.peers.any { it.id == d.id }
                 val searching = Link.reconnecting == d.id
@@ -107,9 +107,9 @@ fun NotConnectedScreen(onScan: () -> Unit, onNfc: () -> Unit) {
                     Text(d.name, style = MaterialTheme.typography.titleMedium)
                     Text(
                         when {
-                            searching -> "searching…"
-                            inRange -> "in range"
-                            else -> "not in range"
+                            searching -> stringResource(R.string.nc_searching)
+                            inRange -> stringResource(R.string.nc_in_range)
+                            else -> stringResource(R.string.nc_not_in_range)
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -117,11 +117,11 @@ fun NotConnectedScreen(onScan: () -> Unit, onNfc: () -> Unit) {
                     Spacer(Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         if (searching) {
-                            AppOutlinedButton(onClick = { Link.cancelReconnect() }) { Text("stop searching") }
+                            AppOutlinedButton(onClick = { Link.cancelReconnect() }) { Text(stringResource(R.string.nc_stop)) }
                         } else {
-                            AppButton(onClick = { Link.reconnect(d.id) }) { Text("reconnect") }
+                            AppButton(onClick = { Link.reconnect(d.id) }) { Text(stringResource(R.string.nc_reconnect)) }
                         }
-                        AppOutlinedButton(onClick = { forgetting = d }) { Text("forget") }
+                        AppOutlinedButton(onClick = { forgetting = d }) { Text(stringResource(R.string.forget)) }
                     }
                 }
             }
@@ -131,10 +131,10 @@ fun NotConnectedScreen(onScan: () -> Unit, onNfc: () -> Unit) {
     forgetting?.let { d ->
         AlertDialog(
             onDismissRequest = { forgetting = null },
-            title = { Text("forget ${d.name}?") },
-            text = { Text("you will need to pair it again") },
-            confirmButton = { TextButton(onClick = { Link.forget(d.id); forgetting = null }) { Text("forget") } },
-            dismissButton = { TextButton(onClick = { forgetting = null }) { Text("cancel") } },
+            title = { Text(stringResource(R.string.nc_forget_title, d.name)) },
+            text = { Text(stringResource(R.string.nc_forget_text)) },
+            confirmButton = { TextButton(onClick = { Link.forget(d.id); forgetting = null }) { Text(stringResource(R.string.forget)) } },
+            dismissButton = { TextButton(onClick = { forgetting = null }) { Text(stringResource(R.string.cancel)) } },
         )
     }
 
@@ -142,12 +142,12 @@ fun NotConnectedScreen(onScan: () -> Unit, onNfc: () -> Unit) {
         var code by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { pairFor = null },
-            title = { Text("pair with ${p.name}") },
+            title = { Text(stringResource(R.string.nc_pair_with, p.name)) },
             text = {
                 OutlinedTextField(
                     value = code,
                     onValueChange = { code = it.filter(Char::isDigit).take(6) },
-                    label = { Text("code shown on pc") },
+                    label = { Text(stringResource(R.string.nc_code_label)) },
                     singleLine = true,
                     shape = MaterialTheme.shapes.small,
                     textStyle = MonoStyle,
@@ -155,9 +155,9 @@ fun NotConnectedScreen(onScan: () -> Unit, onNfc: () -> Unit) {
                 )
             },
             confirmButton = {
-                TextButton(onClick = { Link.connect(p, code); pairFor = null }, enabled = code.length == 6) { Text("pair") }
+                TextButton(onClick = { Link.connect(p, code); pairFor = null }, enabled = code.length == 6) { Text(stringResource(R.string.nc_pair)) }
             },
-            dismissButton = { TextButton(onClick = { pairFor = null }) { Text("cancel") } },
+            dismissButton = { TextButton(onClick = { pairFor = null }) { Text(stringResource(R.string.cancel)) } },
         )
     }
 }

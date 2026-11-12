@@ -14,6 +14,9 @@ object History {
     private val io = Executors.newSingleThreadExecutor()
     private lateinit var file: File
 
+    // (max items, days) of the clipboard history, read each time so a changed setting applies at once. 0 = no limit
+    var clipLimits: () -> Pair<Int, Int> = { 0 to 0 }
+
     @Synchronized
     fun init(ctx: Context) {
         if (this::file.isInitialized) return
@@ -24,12 +27,28 @@ object History {
                 items.addAll((0 until arr.length()).map { fromJson(arr.getJSONObject(it)) })
             }
         }
+        if (pruneClips()) save()
     }
 
     fun add(i: Item) {
         items.add(0, i)
         if (items.size > MAX) items.removeRange(MAX, items.size)
+        if (i.kind == "clip") pruneClips()
         save()
+    }
+
+    // called by the settings after the limits changed
+    fun enforceClipLimits() { if (pruneClips()) save() }
+
+    // clipboard items older than the retention or beyond the newest N are deleted. evaluated at app start, when a clipboard item
+    // is added and when the limits change, not by a timer, so an item can outlive its time while the app sits idle
+    private fun pruneClips(): Boolean {
+        val (max, days) = clipLimits()
+        val oldest = if (days > 0) System.currentTimeMillis() - days * 86_400_000L else Long.MIN_VALUE
+        var kept = 0
+        val before = items.size
+        items.removeAll { it.kind == "clip" && (it.ts < oldest || (max > 0 && ++kept > max)) }
+        return items.size != before
     }
 
     fun remove(id: String) {

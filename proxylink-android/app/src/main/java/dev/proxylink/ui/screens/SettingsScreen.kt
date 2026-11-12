@@ -40,7 +40,7 @@ fun SettingsScreen(onOpen: (String) -> Unit) {
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             NavRow(stringResource(R.string.title_appearance), Icons.Default.Palette, if (PaletteStore.dynamic) stringResource(R.string.system) else PaletteStore.current.label) { onOpen("appearance") }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            NavRow(stringResource(R.string.title_clipboard), Icons.Default.ContentPaste) { onOpen("clipboard") }
+            NavRow(stringResource(R.string.title_clipboard), Icons.Default.ContentPaste, stringResource(if (Link.clipEnabled) R.string.state_on else R.string.state_off)) { onOpen("clipboard") }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             NavRow(stringResource(R.string.title_transfers), Icons.Default.SwapVert) { onOpen("transfers") }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)

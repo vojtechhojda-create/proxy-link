@@ -82,11 +82,18 @@ object Notifier {
             "link" -> "link from ${item.from}"
             else -> "text from ${item.from}"
         }
+        // a received image shows its picture (small thumbnail made by the system, nothing is downloaded)
+        val thumb = if (item.type == "image" && item.uri != null) {
+            runCatching { ctx.contentResolver.loadThumbnail(Uri.parse(item.uri), android.util.Size(480, 480), null) }.getOrNull()
+        } else null
+        val style: Notification.Style =
+            if (thumb != null) Notification.BigPictureStyle().bigPicture(thumb).setSummaryText(item.text)
+            else Notification.BigTextStyle().bigText(item.text)
         val n = Notification.Builder(ctx, CH_IN)
             .setSmallIcon(android.R.drawable.stat_notify_sync)
             .setContentTitle(title)
             .setContentText(item.text)
-            .setStyle(Notification.BigTextStyle().bigText(item.text))
+            .setStyle(style)
             .setContentIntent(tap)
             .setAutoCancel(true)
             .build()

@@ -92,7 +92,7 @@ private class OutFile(
     val name: String, val size: Long, val mime: String, val stream: InputStream, val who: String, val uri: String,
 )
 
-private class InFile(val req: ShareReq, val uri: Uri, val out: OutputStream) {
+private class InFile(val req: ShareReq, val uri: Uri, val out: OutputStream, val name: String) {
     val digest: MessageDigest = MessageDigest.getInstance("SHA-256")
     var bytes = 0L
     var reported = 0L
@@ -155,8 +155,11 @@ object Link {
 
     var state by mutableStateOf(LinkState.IDLE); private set
     var pairError by mutableStateOf(false); private set
+    // id of the pc the link is connected to right now, null when not connected
+    val connectedPcId: String? get() = if (state == LinkState.CONNECTED) pcId.ifEmpty { null } else null
     var guest by mutableStateOf(false); private set
     var pcName by mutableStateOf(""); private set
+    var clipEnabled by mutableStateOf(true); private set
     var clipSend by mutableStateOf(true); private set
     var clipReceive by mutableStateOf(true); private set
     var clipPausedUntil by mutableStateOf(0L); private set
@@ -219,9 +222,11 @@ object Link {
         prefs = Prefs(app)
         autoSuppressed = prefs.userDisconnected
         preferred = prefs.preferredId
+        clipEnabled = prefs.clipEnabled
         clipSend = prefs.clipSend
         clipReceive = prefs.clipReceive
         clipPausedUntil = prefs.clipPausedUntil
+        History.clipLimits = { prefs.clipHistoryMax to prefs.clipHistoryDays }
         History.init(app)
         Notifier.init(app)
         discovery = Discovery(app)
@@ -269,8 +274,10 @@ object Link {
     private fun refreshKnown() {
         known.clear()
         known.addAll(prefs.knownDevices().sortedByDescending { it.lastConnected })
+        publishShortcuts()
     }
 
+    fun changeClipEnabled(v: Boolean) { clipEnabled = v; prefs.clipEnabled = v; if (this::app.isInitialized) dev.proxylink.Widgets.updateAll(app) }
     fun changeClipSend(v: Boolean) { clipSend = v; prefs.clipSend = v }
     fun changeClipReceive(v: Boolean) { clipReceive = v; prefs.clipReceive = v }
     fun clipPaused(): Boolean = clipPausedUntil > System.currentTimeMillis()
@@ -280,16 +287,20 @@ object Link {
         prefs.clipPausedUntil = clipPausedUntil
     }
     fun resumeClip() { clipPausedUntil = 0L; prefs.clipPausedUntil = 0L }
-    private fun clipAuto(enabled: Boolean) = enabled && !clipPaused()
+    private fun clipAuto(enabled: Boolean) = clipEnabled && enabled && !clipPaused()
 
     private fun go(s: LinkState) {
         state = s
         if (s != LinkState.CONNECTED) { latency = -1; others.clear(); targetId = null }
-        if (s == LinkState.IDLE) guest = false
+        if (s == LinkState.IDLE) { guest = false; Capabilities.reset() }
         if (s == LinkState.CONNECTED) { reconnecting = null; retries = 0; lastError = null; discovery.stop(); peers.clear() } else startDiscovery()
         listeners.forEach { it(s) }
-        if (this::app.isInitialized) Shortcuts.publish(app, pcName, others.toList())
+        publishShortcuts()
+        if (this::app.isInitialized) dev.proxylink.Widgets.updateAll(app)
     }
+
+    // direct share targets follow the paired devices and the devices seen through the pc
+    private fun publishShortcuts() { if (this::app.isInitialized) Shortcuts.publish(app, known.toList(), others.toList()) }
 
     fun connect(p: Peer, pairCode: String? = null, guestTok: String? = null) {
         suppress(false)
@@ -359,6 +370,7 @@ object Link {
         if (reconnecting == id) reconnecting = null
         if (preferred == id) setPreferredDevice(null)
         prefs.forget(id)
+        if (this::app.isInitialized) Shortcuts.remove(app, "pc:$id")   // a forgotten device must not stay in the share sheet
         refreshKnown()
     }
 
@@ -447,6 +459,7 @@ object Link {
             "hello" -> {
                 nonce = m.getString("nonce"); pcId = m.getString("id")
                 helloName = m.optString("name").ifBlank { pcName }
+                Capabilities.update(m.optInt("v", 0), m.optJSONArray("caps"))
                 val o = mutableMapOf<String, Any>("t" to "hello", "id" to prefs.id, "name" to prefs.name)
                 prefs.secret(pcId)?.let { o["mac"] = hmac(it, nonce) }
                 tx(o)
@@ -473,7 +486,7 @@ object Link {
                     others.add(Other(o.getString("id"), o.getString("name")))
                 }
                 if (targetId != null && others.none { it.id == targetId }) targetId = null
-                Shortcuts.publish(app, pcName, others.toList())
+                publishShortcuts()
             }
             "pong" -> latency = SystemClock.elapsedRealtime() - pingAt
             "share.request" -> {
@@ -485,7 +498,7 @@ object Link {
                 )
                 val valid = r.sid.length == 36 && r.kind in listOf("text", "link", "file") && r.size in 0..MAX_FILE
                 if (!valid) tx(mapOf("t" to "share.deny", "sid" to r.sid))
-                else if (prefs.autoAccept) accept(r)
+                else if (prefs.autoAccept && (r.kind != "file" || prefs.autoAcceptMaxMb == 0 || r.size <= prefs.autoAcceptMaxMb * 1_048_576L)) accept(r)
                 else { requests.add(r); Notifier.request(app, r, pcName) }
             }
             "share.text" -> meta.remove(m.getString("sid"))?.let {
@@ -562,7 +575,11 @@ object Link {
                     }
                     val uri = app.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, cv)!!
                     val out = app.contentResolver.openOutputStream(uri)!!
-                    incoming[r.sid] = InFile(r, uri, out)
+                    // the system keeps both files when the name is taken ("name (1).jpg"); the history shows the name really saved
+                    val saved = runCatching {
+                        app.contentResolver.query(uri, arrayOf(MediaStore.Downloads.DISPLAY_NAME), null, null, null)?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
+                    }.getOrNull() ?: safe(r.name)
+                    incoming[r.sid] = InFile(r, uri, out, saved)
                     setTransfer(r.sid, r.name, r.size, 0, false, "active", who)
                     tx(mapOf("t" to "share.accept", "sid" to r.sid))
                 } catch (e: Exception) {
@@ -611,11 +628,20 @@ object Link {
         setTransfer(sid, f.req.name, f.req.size, f.bytes, false, if (ok) "done" else "failed", who)
         if (ok) main.post {
             val item = Item(
-                "file", f.req.name, f.req.from.ifBlank { pcName },
+                "file", f.name, f.req.from.ifBlank { pcName },
                 uri = f.uri.toString(), dir = "in", size = f.req.size, mime = f.req.mime,
             )
             History.add(item)
             Notifier.notifyReceived(app, item)
+            // opened by itself only while the app is on screen (android does not let a background app open windows);
+            // otherwise the notification opens the file
+            if (prefs.openAfterReceive && foreground) runCatching {
+                app.startActivity(
+                    android.content.Intent(android.content.Intent.ACTION_VIEW)
+                        .setDataAndType(f.uri, f.req.mime.ifBlank { "*/*" })
+                        .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+            }
         }
     }
 
@@ -764,27 +790,34 @@ object Link {
     }
 
     // reading the clipboard only works while the app has focus (android 10+)
-    fun pushClipboard(manual: Boolean = false) {
-        if (state != LinkState.CONNECTED || guest || (!manual && !clipAuto(clipSend))) return
+    fun pushClipboard(manual: Boolean = false) { doPushClipboard(manual) }
+
+    // manual send from a button: true only when something was really handed to the connection (not a delivery confirmation,
+    // the pc does not acknowledge clipboard updates), false when the clipboard had nothing to send
+    fun sendClipboardNow(): Boolean = doPushClipboard(true)
+
+    private fun doPushClipboard(manual: Boolean): Boolean {
+        if (!clipEnabled || state != LinkState.CONNECTED || guest || (!manual && !clipAuto(clipSend))) return false
         val cm = app.getSystemService(ClipboardManager::class.java)
-        val clip = cm.primaryClip?.takeIf { it.itemCount > 0 } ?: return
+        val clip = cm.primaryClip?.takeIf { it.itemCount > 0 } ?: return false
         // text the source app marked as sensitive (passwords, one time codes) is never sent automatically
-        if (!manual && clip.description.extras?.getBoolean(ClipDescription.EXTRA_IS_SENSITIVE, false) == true) return
+        if (!manual && clip.description.extras?.getBoolean(ClipDescription.EXTRA_IS_SENSITIVE, false) == true) return false
         val first = clip.getItemAt(0)
         // an image in the clipboard is sent as a file, only when the user asks
         val imageUri = first.uri
         if (imageUri != null && clip.description.hasMimeType("image/*")) {
-            if (manual) sendFile(imageUri)
-            return
+            if (manual) { sendFile(imageUri); return true }
+            return false
         }
         val t = first.coerceToText(app)?.toString().orEmpty()
-        if (t.isEmpty()) return
+        if (t.isEmpty()) return false
         val h = sha(t)
-        if (!manual && h == clipHash) return
+        if (!manual && h == clipHash) return false
         clipHash = h
         tx(mapOf("t" to "clip.update", "ts" to System.currentTimeMillis(), "hash" to h, "text" to t.take(100_000)))
         clipLastSent = System.currentTimeMillis()
         if (prefs.clipHistory) History.add(Item("clip", t, prefs.name, dir = "out", size = t.length.toLong()))
+        return true
     }
 
     private fun safe(n: String) = n.replace(Regex("[\\\\/:*?\"<>|]"), "_").take(120).ifBlank { "file" }

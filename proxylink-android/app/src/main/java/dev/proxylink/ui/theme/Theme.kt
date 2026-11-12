@@ -10,6 +10,7 @@ import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -36,8 +37,8 @@ fun ProxylinkTheme(content: @Composable () -> Unit) {
     val dynamic = PaletteStore.dynamic
     val palette = PaletteStore.current
 
-    // brand palettes are dark; material you follows the system light/dark setting
-    val dark = if (dynamic) systemDark else true
+    // a palette says itself if it is dark; material you follows the system light/dark setting
+    val dark = if (dynamic) systemDark else palette.dark
     val scheme = when {
         dynamic && systemDark -> dynamicDarkColorScheme(ctx)
         dynamic -> dynamicLightColorScheme(ctx)
@@ -59,6 +60,9 @@ fun ProxylinkTheme(content: @Composable () -> Unit) {
     }
 
     CompositionLocalProvider(LocalLogoColors provides logo) {
-        MaterialTheme(colorScheme = scheme, typography = ProxyTypography, shapes = ProxyShapes, content = content)
+        val font = FontStore.current
+        val typography = remember(font) { font.pair().let { proxyTypography(it.heading, it.body) } }
+        val shapes = remember(ShapeStore.current) { proxyShapes(ShapeStore.current) }
+        MaterialTheme(colorScheme = scheme, typography = typography, shapes = shapes, content = content)
     }
 }

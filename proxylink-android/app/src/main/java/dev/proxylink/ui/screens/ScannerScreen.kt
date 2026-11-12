@@ -39,10 +39,12 @@ import dev.proxylink.R
 import dev.proxylink.core.Link
 import dev.proxylink.core.LinkState
 import dev.proxylink.ui.components.AppButton
-import dev.proxylink.ui.components.rememberSendActions
 import dev.proxylink.ui.components.AppOutlinedButton
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+
+// text and icons over the camera picture are white in every palette, also in the light one
+private val OnScrim = androidx.compose.ui.graphics.Color.White
 
 // own qr scanner: camerax preview + ml kit barcode scanning (bundled model, works offline)
 @Composable
@@ -68,23 +70,23 @@ fun ScannerScreen(onResult: (String) -> Boolean, onClose: () -> Unit) {
             })
             Box(
                 Modifier.align(Alignment.Center).size(240.dp)
-                    .border(2.dp, MaterialTheme.colorScheme.inverseSurface, MaterialTheme.shapes.medium),
+                    .border(2.dp, OnScrim, MaterialTheme.shapes.medium),
             )
             Text(
                 stringResource(R.string.scan_hint),
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.inverseSurface,
+                color = OnScrim,
                 modifier = Modifier.align(Alignment.Center).offset(y = 150.dp),
             )
             Row(Modifier.fillMaxWidth().padding(8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                 IconButton(onClick = onClose) {
-                    Icon(Icons.Default.Close, contentDescription = stringResource(R.string.close), tint = MaterialTheme.colorScheme.inverseSurface)
+                    Icon(Icons.Default.Close, contentDescription = stringResource(R.string.close), tint = OnScrim)
                 }
                 IconButton(onClick = { torch = !torch }) {
                     Icon(
                         if (torch) Icons.Default.FlashOn else Icons.Default.FlashOff,
                         contentDescription = stringResource(if (torch) R.string.torch_off else R.string.torch_on),
-                        tint = MaterialTheme.colorScheme.inverseSurface,
+                        tint = OnScrim,
                     )
                 }
             }
@@ -102,7 +104,7 @@ fun ScannerScreen(onResult: (String) -> Boolean, onClose: () -> Unit) {
                     Text(
                         stringResource(R.string.generate_qr_unsupported),
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.inverseSurface,
+                        color = OnScrim,
                     )
                 }
             }
@@ -115,7 +117,7 @@ fun ScannerScreen(onResult: (String) -> Boolean, onClose: () -> Unit) {
                 Text(
                     stringResource(R.string.camera_needed),
                     style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.inverseSurface,
+                    color = OnScrim,
                 )
                 AppButton(onClick = { ask.launch(Manifest.permission.CAMERA) }) { Text(stringResource(R.string.allow_camera)) }
                 AppOutlinedButton(onClick = onClose) { Text(stringResource(R.string.close)) }
@@ -129,7 +131,18 @@ private const val PHONE_QR_SUPPORTED = false
 
 @Composable
 private fun BoxScope.ScanResult(onAgain: () -> Unit, onClose: () -> Unit) {
-    val actions = rememberSendActions()
+    val ctx = LocalContext.current
+    // a normal connection does not stop here: once the link really is connected the screen closes and the app shows its standard UI.
+    // only a state change seen after the scan counts, so an older connection does not close the screen before the new one is made.
+    // the single button below stays as a fallback when no change was seen. failures and the wait still show their own result
+    var sawOther by remember { mutableStateOf(false) }
+    LaunchedEffect(Link.state) {
+        if (Link.state != LinkState.CONNECTED) sawOther = true
+        else if (sawOther) {
+            Toast.makeText(ctx, ctx.getString(R.string.scan_connected, Link.pcName), Toast.LENGTH_SHORT).show()
+            onClose()
+        }
+    }
     val failed = Link.state == LinkState.NEEDS_PAIR && Link.pairError
     Column(
         Modifier.align(Alignment.Center).padding(24.dp),
@@ -143,17 +156,11 @@ private fun BoxScope.ScanResult(onAgain: () -> Unit, onClose: () -> Unit) {
                 else -> stringResource(R.string.scan_connecting, Link.pcName)
             },
             style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.inverseSurface,
+            color = OnScrim,
         )
         when {
             Link.state == LinkState.CONNECTED -> {
-                Text(
-                    stringResource(R.string.scan_connected_hint),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.inverseSurface,
-                )
-                AppButton(onClick = actions.file) { Text(stringResource(R.string.send_file)) }
-                AppOutlinedButton(onClick = onClose) { Text(stringResource(R.string.done)) }
+                AppButton(onClick = onClose) { Text(stringResource(R.string.done)) }
             }
             failed || Link.state == LinkState.IDLE || Link.state == LinkState.NEEDS_PAIR -> {
                 AppButton(onClick = onAgain) { Text(stringResource(R.string.scan_again)) }

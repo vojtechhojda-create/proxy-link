@@ -10,18 +10,28 @@ import android.nfc.tech.Ndef
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Nfc
-import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import android.widget.Toast
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
@@ -36,6 +46,11 @@ import kotlinx.coroutines.delay
 private enum class NfcStage { READY, CONFIRM, CONNECTING, CONNECTED, FAILED, TIMEOUT, BAD_TAG }
 
 private const val NFC_WAIT_MS = 60_000L
+
+// the screen may only say "hold the phones together" when two phones can really connect over nfc. today the app reads
+// pairing tags only (no card emulation, no phone to phone transport), so the texts speak about a tag.
+// change this together with the support in the app and the pc
+private const val NFC_PHONE_TO_PHONE = false
 
 private tailrec fun Context.findActivity(): Activity? = when (this) {
     is Activity -> this
@@ -59,7 +74,6 @@ fun NfcScreen(onClose: () -> Unit, onScan: () -> Unit) {
     val nfcOn = tick >= 0 && adapter?.isEnabled == true
     var stage by remember { mutableStateOf(NfcStage.READY) }
     var found by remember { mutableStateOf<Link.LinkInfo?>(null) }
-    val actions = rememberSendActions()
     val activity = remember { ctx.findActivity() }
 
     // reader mode runs only while the screen waits for a tag, and is always switched off again
@@ -88,6 +102,13 @@ fun NfcScreen(onClose: () -> Unit, onScan: () -> Unit) {
             if (stage == NfcStage.READY) stage = NfcStage.TIMEOUT
         }
     }
+    // connected for real: no extra screen, back to the standard UI (sending a file is a normal action there)
+    LaunchedEffect(stage) {
+        if (stage == NfcStage.CONNECTED) {
+            Toast.makeText(ctx, ctx.getString(R.string.scan_connected, Link.pcName), Toast.LENGTH_SHORT).show()
+            onClose()
+        }
+    }
     // the result comes from the real link state, not from reading the tag
     LaunchedEffect(stage, Link.state) {
         if (stage == NfcStage.CONNECTING) when (Link.state) {
@@ -97,25 +118,25 @@ fun NfcScreen(onClose: () -> Unit, onScan: () -> Unit) {
         }
     }
 
-    Column(
-        Modifier.fillMaxSize().verticalScrollCompat().padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
+    val info = found
+    val ready = adapter != null && nfcOn
+    Column(Modifier.fillMaxSize().padding(16.dp)) {
         ScreenHeader(stringResource(R.string.nfc_title))
-        Panel {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.PhoneAndroid, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                Icon(Icons.Default.Nfc, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                Icon(Icons.Default.PhoneAndroid, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-            }
-            Spacer(Modifier.height(8.dp))
-            val info = found
+
+        // the middle of the content area: a plain nfc icon, the main text under it, then the actions of the current stage
+        Column(
+            Modifier.weight(1f).fillMaxWidth().verticalScrollCompat(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            NfcPulse(active = ready && stage == NfcStage.READY)
+            Spacer(Modifier.height(16.dp))
             Text(
                 when {
                     adapter == null -> stringResource(R.string.nfc_unsupported)
                     !nfcOn -> stringResource(R.string.nfc_off)
                     else -> when (stage) {
-                        NfcStage.READY -> stringResource(R.string.nfc_ready)
+                        NfcStage.READY -> stringResource(if (NFC_PHONE_TO_PHONE) R.string.nfc_ready_main else R.string.nfc_tag_main)
                         NfcStage.CONFIRM -> stringResource(R.string.pair_dialog_title, info?.name ?: "")
                         NfcStage.CONNECTING -> stringResource(R.string.scan_connecting, Link.pcName)
                         NfcStage.CONNECTED -> stringResource(R.string.scan_connected, Link.pcName)
@@ -124,52 +145,76 @@ fun NfcScreen(onClose: () -> Unit, onScan: () -> Unit) {
                         NfcStage.BAD_TAG -> stringResource(R.string.nfc_bad_tag)
                     }
                 },
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.headlineSmall,
+                textAlign = TextAlign.Center,
             )
             val sub = when {
-                adapter == null || !nfcOn -> null
+                !ready -> null
+                stage == NfcStage.READY -> stringResource(if (NFC_PHONE_TO_PHONE) R.string.nfc_ready_sub else R.string.nfc_tag_sub)
                 stage == NfcStage.CONFIRM -> stringResource(R.string.nfc_confirm_hint, info?.host ?: "")
                 stage == NfcStage.CONNECTING -> stringResource(R.string.nfc_remove_hint)
-                stage == NfcStage.CONNECTED -> stringResource(R.string.scan_connected_hint)
                 else -> null
             }
-            if (sub != null) Text(sub, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (sub != null) {
+                Text(
+                    sub, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp),
+                )
+            }
+            Spacer(Modifier.height(16.dp))
+            if (adapter != null && !nfcOn) {
+                AppButton(onClick = { ctx.startActivity(Intent(Settings.ACTION_NFC_SETTINGS)) }) { Text(stringResource(R.string.nfc_turn_on)) }
+            } else if (adapter != null) when (stage) {
+                NfcStage.CONFIRM -> AdaptiveButtons {
+                    AppButton(onClick = { found?.let { Link.connectTo(it) }; found = null; stage = NfcStage.CONNECTING }) { Text(stringResource(R.string.connect)) }
+                    AppOutlinedButton(onClick = { found = null; stage = NfcStage.READY }) { Text(stringResource(R.string.cancel)) }
+                }
+                NfcStage.FAILED, NfcStage.TIMEOUT, NfcStage.BAD_TAG ->
+                    AppButton(onClick = { stage = NfcStage.READY }) { Text(stringResource(R.string.try_again)) }
+                else -> {}
+            }
         }
 
-        if (adapter != null && !nfcOn) {
-            AppButton(onClick = { ctx.startActivity(Intent(Settings.ACTION_NFC_SETTINGS)) }, modifier = Modifier.fillMaxWidth()) {
-                Text(stringResource(R.string.nfc_turn_on))
+        // cancel and the alternative are always reachable at the bottom
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (stage != NfcStage.CONNECTED) {
+                AppOutlinedButton(onClick = onScan, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.nfc_use_qr)) }
             }
-        } else if (adapter != null) when (stage) {
-            NfcStage.CONFIRM -> {
-                AppButton(
-                    onClick = { found?.let { Link.connectTo(it) }; found = null; stage = NfcStage.CONNECTING },
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text(stringResource(R.string.connect)) }
-                AppOutlinedButton(onClick = { found = null; stage = NfcStage.READY }, modifier = Modifier.fillMaxWidth()) {
-                    Text(stringResource(R.string.cancel))
+            AppOutlinedButton(onClick = onClose, modifier = Modifier.fillMaxWidth()) {
+                Text(stringResource(if (stage == NfcStage.CONNECTED) R.string.done else R.string.cancel))
+            }
+            Text(
+                (if (NFC_PHONE_TO_PHONE) "" else stringResource(R.string.nfc_scope) + " ") + stringResource(R.string.nfc_hotspot_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+// a plain nfc icon on a round surface in the palette colors. two thin rings spread out softly while the screen waits.
+// no motion when the system animations are off (animator duration scale 0) or when nothing is being waited for
+@Composable
+private fun NfcPulse(active: Boolean) {
+    val ctx = LocalContext.current
+    val systemAnimations = remember { Settings.Global.getFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) > 0f }
+    val moving = active && systemAnimations
+    val transition = rememberInfiniteTransition(label = "nfc")
+    val phase by transition.animateFloat(0f, 1f, infiniteRepeatable(tween(2200, easing = LinearEasing)), label = "rings")
+    val ring = MaterialTheme.colorScheme.primary
+    Box(Modifier.size(200.dp), contentAlignment = Alignment.Center) {
+        if (moving) {
+            Canvas(Modifier.fillMaxSize()) {
+                for (k in 0..1) {
+                    val q = (phase + k * 0.5f) % 1f
+                    drawCircle(ring.copy(alpha = 0.3f * (1f - q)), radius = size.minDimension / 2f * (0.58f + 0.42f * q), style = Stroke(width = 2.dp.toPx()))
                 }
             }
-            NfcStage.CONNECTED -> {
-                AppButton(onClick = actions.file, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.send_file)) }
+        }
+        Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.size(112.dp)) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(Icons.Default.Nfc, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(64.dp))
             }
-            NfcStage.FAILED, NfcStage.TIMEOUT, NfcStage.BAD_TAG -> {
-                AppButton(onClick = { stage = NfcStage.READY }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.try_again)) }
-            }
-            else -> {}
         }
-
-        if (stage != NfcStage.CONNECTED) {
-            AppOutlinedButton(onClick = onScan, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.nfc_use_qr)) }
-        }
-        AppOutlinedButton(onClick = onClose, modifier = Modifier.fillMaxWidth()) {
-            Text(stringResource(if (stage == NfcStage.CONNECTED) R.string.done else R.string.close))
-        }
-
-        Text(
-            stringResource(R.string.nfc_scope) + " " + stringResource(R.string.nfc_hotspot_hint),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
     }
 }

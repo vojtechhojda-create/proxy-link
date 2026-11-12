@@ -1,6 +1,11 @@
 package dev.proxylink.ui.components
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material.icons.Icons
@@ -11,25 +16,45 @@ import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.proxylink.R
+import dev.proxylink.core.Capabilities
+import dev.proxylink.core.Feature
 import dev.proxylink.core.Link
 import dev.proxylink.core.LinkState
 import dev.proxylink.core.Transfer
 
+// a short press feedback: the button shrinks a little while it is held. the system setting "remove animations" switches it off
 @Composable
-fun AppButton(onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, content: @Composable RowScope.() -> Unit) =
-    Button(onClick = onClick, modifier = modifier, enabled = enabled, shape = MaterialTheme.shapes.small, content = content)
+private fun Modifier.pressScale(source: MutableInteractionSource): Modifier {
+    val pressed by source.collectIsPressedAsState()
+    val s by animateFloatAsState(if (pressed) 0.97f else 1f, tween(90), label = "press")
+    return graphicsLayer { scaleX = s; scaleY = s }
+}
 
 @Composable
-fun AppOutlinedButton(onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, content: @Composable RowScope.() -> Unit) =
-    OutlinedButton(onClick = onClick, modifier = modifier, enabled = enabled, shape = MaterialTheme.shapes.small, content = content)
+fun AppButton(onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, content: @Composable RowScope.() -> Unit) {
+    val src = remember { MutableInteractionSource() }
+    Button(onClick = onClick, modifier = modifier.pressScale(src), enabled = enabled, shape = MaterialTheme.shapes.small, interactionSource = src, content = content)
+}
+
+@Composable
+fun AppOutlinedButton(onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, content: @Composable RowScope.() -> Unit) {
+    val src = remember { MutableInteractionSource() }
+    OutlinedButton(onClick = onClick, modifier = modifier.pressScale(src), enabled = enabled, shape = MaterialTheme.shapes.small, interactionSource = src, content = content)
+}
 
 @Composable
 fun Panel(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
@@ -37,6 +62,7 @@ fun Panel(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> 
         modifier = modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
     ) { Column(Modifier.padding(16.dp), content = content) }
 }
 
@@ -67,7 +93,7 @@ fun SubScreen(title: String, onBack: () -> Unit, content: @Composable ColumnScop
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "back") }
+            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back)) }
             Text(title, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.semantics { heading() })
         }
         content()
@@ -117,14 +143,55 @@ fun TargetPicker() {
     }
 }
 
+// the target of what is sent from the app and the real state of the link to the pc; the chips above change the target.
+// a device behind the pc is reached through the pc, so the line says "via pc" and claims nothing about that device itself
+@Composable
+fun TargetStatus() {
+    val other = Link.others.firstOrNull { it.id == Link.targetId }?.name
+    val pc = Link.pcName.ifBlank { Link.known.firstOrNull()?.name ?: stringResource(R.string.share_no_target) }
+    val state = when (Link.state) {
+        LinkState.CONNECTED ->
+            if (Link.guest) stringResource(R.string.widget_guest)
+            else if (Link.latency >= 0) stringResource(R.string.connected_ms, Link.latency.toInt()) else stringResource(R.string.connected)
+        LinkState.CONNECTING -> stringResource(R.string.qa_state_connecting)
+        LinkState.NEEDS_PAIR -> stringResource(R.string.nc_needs_pair)
+        LinkState.IDLE -> stringResource(R.string.nc_not_connected)
+    }
+    val target = if (other != null) stringResource(R.string.qa_target_via, other, pc) else pc
+    Text(
+        stringResource(R.string.share_target_line, target) + " · " + state,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+// a button is hidden when the user turned the feature off (the clipboard) and disabled, not hidden, when only the connection
+// or the pc is missing something
 @Composable
 fun SendButtons(actions: SendActions) {
-    val enabled = Link.state == LinkState.CONNECTED
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        SendButton("file", Icons.Default.AttachFile, enabled, actions.file, Modifier.weight(1f))
-        SendButton("image", Icons.Default.Image, enabled, actions.image, Modifier.weight(1f))
-        SendButton("clipboard", Icons.Default.ContentPaste, enabled, actions.clipboard, Modifier.weight(1f))
+    // with a large system font the three buttons are stacked, so labels are not cut off
+    if (LocalDensity.current.fontScale > 1.3f) Column(verticalArrangement = Arrangement.spacedBy(8.dp)) { SendButtonItems(actions, Modifier.fillMaxWidth()) }
+    else Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) { SendButtonItems(actions, Modifier.weight(1f)) }
+}
+
+@Composable
+private fun SendButtonItems(actions: SendActions, m: Modifier) {
+    val connected = Link.state == LinkState.CONNECTED
+    SendButton(stringResource(R.string.btn_file), Icons.Default.AttachFile, connected && Capabilities.supports(Feature.FILES), actions.file, m)
+    SendButton(stringResource(R.string.btn_image), Icons.Default.Image, connected && Capabilities.supports(Feature.FILES), actions.image, m)
+    if (Link.clipEnabled) {
+        SendButton(
+            stringResource(R.string.btn_clipboard), Icons.Default.ContentPaste,
+            connected && !Link.guest && Capabilities.supports(Feature.CLIPBOARD), actions.clipboard, m,
+        )
     }
+}
+
+// buttons side by side, stacked under each other when the system text size is large
+@Composable
+fun AdaptiveButtons(content: @Composable () -> Unit) {
+    if (LocalDensity.current.fontScale > 1.3f) Column(verticalArrangement = Arrangement.spacedBy(8.dp)) { content() }
+    else Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { content() }
 }
 
 @Composable
@@ -142,18 +209,33 @@ private fun SendButton(label: String, icon: ImageVector, enabled: Boolean, onCli
     }
 }
 
+// a transfer line says only what is known: "done" for an outgoing file means the receiver confirmed it, "waiting" means the receiver
+// has not accepted yet, and an interrupted link ends as "failed". nothing here is a guess about delivery
 @Composable
 fun TransferRow(t: Transfer) {
+    val who = t.who.ifBlank { "pc" }
+    val label = when (t.status) {
+        "waiting" -> stringResource(R.string.tr_waiting)
+        "active" -> stringResource(if (t.outgoing) R.string.tr_sending else R.string.tr_receiving)
+        "done" -> stringResource(if (t.outgoing) R.string.tr_done_out else R.string.tr_done_in)
+        "denied" -> stringResource(R.string.tr_denied)
+        else -> stringResource(R.string.tr_failed)
+    }
+    val bad = t.status == "failed" || t.status == "denied"
     Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
-        Text("${if (t.outgoing) "to" else "from"} ${t.who.ifBlank { "pc" }} · ${t.name}", maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
+        Text(
+            stringResource(if (t.outgoing) R.string.tr_to else R.string.tr_from, who) + " · " + t.name,
+            maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium,
+        )
         if (t.status == "active" || t.status == "waiting") {
             val f = if (t.size > 0) (t.bytes.toFloat() / t.size).coerceIn(0f, 1f) else 0f
-            LinearProgressIndicator(progress = { f }, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp))
+            val shown by animateFloatAsState(f, tween(150), label = "progress")
+            LinearProgressIndicator(progress = { shown }, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp))
         }
         Text(
-            "${t.status} · ${fmtSize(t.bytes)} / ${fmtSize(t.size)}",
+            "$label · ${fmtSize(t.bytes)} / ${fmtSize(t.size)}",
             style = MaterialTheme.typography.bodySmall,
-            color = if (t.status == "failed") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+            color = if (bad) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }

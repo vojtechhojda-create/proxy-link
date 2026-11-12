@@ -1,11 +1,13 @@
 package dev.proxylink.ui.components
 
 import android.content.Intent
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalContext
+import dev.proxylink.R
 import dev.proxylink.core.Link
 
 class SendActions(val file: () -> Unit, val image: () -> Unit, val clipboard: () -> Unit)
@@ -27,6 +29,9 @@ fun rememberSendActions(): SendActions {
     return SendActions(
         file = { haptic(); fileLauncher.launch(arrayOf("*/*")) },
         image = { haptic(); imageLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-        clipboard = { haptic(); Link.pushClipboard(manual = true) },
+        clipboard = {
+            haptic()
+            Toast.makeText(ctx, if (Link.sendClipboardNow()) R.string.toast_clip_sent else R.string.toast_clip_empty, Toast.LENGTH_SHORT).show()
+        },
     )
 }

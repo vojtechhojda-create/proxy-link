@@ -12,8 +12,16 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.material.icons.filled.Devices
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.SwapVert
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -27,6 +35,8 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.compose.ui.res.stringResource
 import dev.proxylink.LinkService
 import dev.proxylink.R
+import dev.proxylink.core.Capabilities
+import dev.proxylink.core.Feature
 import dev.proxylink.core.ImageOptimizer
 import kotlinx.coroutines.delay
 import dev.proxylink.core.History
@@ -36,13 +46,18 @@ import dev.proxylink.core.KnownDevice
 import dev.proxylink.core.Link
 import dev.proxylink.core.LinkState
 import dev.proxylink.ui.components.*
+import dev.proxylink.ui.theme.AppFont
+import dev.proxylink.ui.theme.FontStore
 import dev.proxylink.ui.theme.MonoStyle
 import dev.proxylink.ui.theme.Palette
 import dev.proxylink.ui.theme.PaletteStore
+import dev.proxylink.ui.theme.ShapeStore
+import dev.proxylink.ui.theme.ShapeStyle
 import dev.proxylink.ui.theme.Palettes
+import dev.proxylink.ui.theme.pair
 
 @Composable
-fun SettingsSection(section: String, onBack: () -> Unit, onScan: () -> Unit) {
+fun SettingsSection(section: String, onBack: () -> Unit, onScan: () -> Unit, onOpen: (String) -> Unit = {}) {
     when (section) {
         "devices" -> DevicesSection(onBack, onScan)
         "connection" -> ConnectionSection(onBack)
@@ -52,7 +67,7 @@ fun SettingsSection(section: String, onBack: () -> Unit, onScan: () -> Unit) {
         "notifications" -> NotificationsSection(onBack)
         "privacy" -> PrivacySection(onBack)
         "diagnostics" -> DiagnosticsSection(onBack)
-        else -> AboutSection(onBack)
+        else -> AboutSection(onBack, onOpen)
     }
 }
 
@@ -175,14 +190,17 @@ private fun ConnectionSection(onBack: () -> Unit) {
 private fun AppearanceSection(onBack: () -> Unit) {
     val ctx = LocalContext.current
     var iconByPalette by remember { mutableStateOf(Link.prefs.paletteIcon) }
+    var confirmReset by remember { mutableStateOf(false) }
     fun syncIcon() = LauncherIcon.apply(ctx, Link.prefs.paletteIcon, Link.prefs.palette, Link.prefs.dynamicColor)
 
     SubScreen(stringResource(R.string.title_appearance), onBack) {
+        SectionTitle(stringResource(R.string.look_colors))
         Palettes.all.forEach { p ->
             PaletteOption(p, selected = !PaletteStore.dynamic && PaletteStore.current.name == p.name) {
                 PaletteStore.select(p)
                 Link.prefs.palette = p.name
                 Link.prefs.dynamicColor = false
+                dev.proxylink.Widgets.updateAll(ctx)
                 syncIcon()
             }
         }
@@ -190,6 +208,7 @@ private fun AppearanceSection(onBack: () -> Unit) {
         SelectableCard(selected = PaletteStore.dynamic, onClick = {
             PaletteStore.useSystem()
             Link.prefs.dynamicColor = true
+            dev.proxylink.Widgets.updateAll(ctx)
             syncIcon()
         }) {
             Text(stringResource(R.string.system_colors), style = MaterialTheme.typography.titleMedium)
@@ -199,6 +218,7 @@ private fun AppearanceSection(onBack: () -> Unit) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+        SectionTitle(stringResource(R.string.look_icon))
         Panel {
             SwitchRow(
                 stringResource(R.string.icon_by_palette),
@@ -209,8 +229,101 @@ private fun AppearanceSection(onBack: () -> Unit) {
                 Link.prefs.paletteIcon = it
                 syncIcon()
             }
+            // a palette without its own launcher icon is not hidden behind a switch that seems to do something
+            if (iconByPalette && (PaletteStore.dynamic || !LauncherIcon.hasOwn(PaletteStore.current.name))) {
+                Text(
+                    stringResource(R.string.icon_fallback),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        FontOptions()
+        ShapeOptions()
+        // only visual choices: palette, font, corners, icon by palette. devices, history and security stay as they are
+        AppOutlinedButton(onClick = { confirmReset = true }, modifier = Modifier.fillMaxWidth()) {
+            Text(stringResource(R.string.reset_look))
         }
     }
+
+    if (confirmReset) {
+        AlertDialog(
+            onDismissRequest = { confirmReset = false },
+            title = { Text(stringResource(R.string.reset_look_title)) },
+            text = { Text(stringResource(R.string.reset_look_text)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    PaletteStore.select(Palettes.brand); Link.prefs.palette = Palettes.brand.name; Link.prefs.dynamicColor = false
+                    FontStore.load("default"); Link.prefs.font = "default"
+                    ShapeStore.load("default"); Link.prefs.shape = "default"
+                    iconByPalette = false; Link.prefs.paletteIcon = false
+                    dev.proxylink.Widgets.updateAll(ctx)
+                    syncIcon()
+                    confirmReset = false
+                }) { Text(stringResource(R.string.reset_look_confirm)) }
+            },
+            dismissButton = { TextButton(onClick = { confirmReset = false }) { Text(stringResource(R.string.cancel)) } },
+        )
+    }
+}
+
+// corner style with a small preview (panel, button, dialog) drawn with that style's own radii. applies at once through the theme
+@Composable
+private fun ShapeOptions() {
+    SectionTitle(stringResource(R.string.shape_title))
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        ShapeStyle.entries.forEach { st ->
+            val selected = ShapeStore.current == st
+            Card(
+                shape = MaterialTheme.shapes.medium,
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                border = BorderStroke(if (selected) 2.dp else 1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
+                modifier = Modifier.weight(1f).selectable(selected = selected, role = Role.RadioButton) { ShapeStore.select(st); Link.prefs.shape = st.key },
+            ) {
+                Column(Modifier.padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    // panel, button and dialog drawn with this style's own radii
+                    val line = MaterialTheme.colorScheme.outline
+                    Box(Modifier.fillMaxWidth().height(22.dp).border(1.dp, line, RoundedCornerShape(st.m.dp)))
+                    Box(Modifier.fillMaxWidth(0.7f).height(16.dp).background(MaterialTheme.colorScheme.primary, RoundedCornerShape(st.s.dp)))
+                    Box(Modifier.fillMaxWidth().height(22.dp).background(MaterialTheme.colorScheme.surfaceContainerHighest, RoundedCornerShape(st.xl.dp)).border(1.dp, line, RoundedCornerShape(st.xl.dp)))
+                    Text(
+                        stringResource(when (st) { ShapeStyle.SQUARE -> R.string.shape_square; ShapeStyle.DEFAULT -> R.string.shape_default; ShapeStyle.ROUND -> R.string.shape_round }),
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                }
+            }
+        }
+    }
+    Text(
+        stringResource(R.string.shape_note),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+// main ui font with a live preview in each font. the choice applies at once and is saved in Prefs
+@Composable
+private fun FontOptions() {
+    SectionTitle(stringResource(R.string.font_title))
+    AppFont.entries.forEach { f ->
+        val pair = f.pair()
+        SelectableCard(selected = FontStore.current == f, onClick = { FontStore.select(f); Link.prefs.font = f.key }) {
+            Text(
+                if (f == AppFont.SYSTEM) stringResource(R.string.font_system) else f.label,
+                style = MaterialTheme.typography.titleMedium.copy(fontFamily = pair.heading),
+            )
+            Text(
+                stringResource(R.string.font_preview),
+                style = MaterialTheme.typography.bodyMedium.copy(fontFamily = pair.body),
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
+    }
+    Text(
+        stringResource(R.string.font_note),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }
 
 @Composable
@@ -222,18 +335,19 @@ private fun SelectableCard(selected: Boolean, onClick: () -> Unit, content: @Com
             if (selected) 2.dp else 1.dp,
             if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
         ),
-        modifier = Modifier.fillMaxWidth().clickable(role = Role.RadioButton, onClick = onClick),
-    ) { Column(Modifier.padding(16.dp), content = content) }
+        modifier = Modifier.fillMaxWidth().selectable(selected = selected, role = Role.RadioButton, onClick = onClick),
+    ) { Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), content = content) }
 }
 
 @Composable
 private fun PaletteOption(p: Palette, selected: Boolean, onClick: () -> Unit) {
     SelectableCard(selected, onClick) {
-        Text(p.label, style = MaterialTheme.typography.titleMedium)
-        Spacer(Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            listOf(p.scheme.background, p.scheme.surfaceContainerHigh, p.scheme.primary, p.scheme.secondary, p.scheme.tertiary).forEach { c ->
-                Box(Modifier.size(width = 28.dp, height = 18.dp).background(c, MaterialTheme.shapes.extraSmall))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(p.label, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                listOf(p.scheme.background, p.scheme.surfaceContainerHigh, p.scheme.primary, p.scheme.secondary, p.scheme.tertiary).forEach { c ->
+                    Box(Modifier.size(width = 20.dp, height = 16.dp).background(c, MaterialTheme.shapes.extraSmall).border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.extraSmall))
+                }
             }
         }
     }
@@ -243,6 +357,9 @@ private fun PaletteOption(p: Palette, selected: Boolean, onClick: () -> Unit) {
 private fun ClipboardSection(onBack: () -> Unit) {
     val ctx = LocalContext.current
     var history by remember { mutableStateOf(Link.prefs.clipHistory) }
+    var enabled by remember { mutableStateOf(Link.clipEnabled) }
+    var maxItems by remember { mutableIntStateOf(Link.prefs.clipHistoryMax) }
+    var keepDays by remember { mutableIntStateOf(Link.prefs.clipHistoryDays) }
     // the pause can run out while the screen is open, so the status is re-read now and then
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) { while (true) { delay(30_000); now = System.currentTimeMillis() } }
@@ -250,6 +367,11 @@ private fun ClipboardSection(onBack: () -> Unit) {
     fun time(t: Long) = if (t > 0) DateUtils.formatDateTime(ctx, t, DateUtils.FORMAT_SHOW_TIME) else null
 
     SubScreen(stringResource(R.string.title_clipboard), onBack) {
+        Panel {
+            SwitchRow(stringResource(R.string.clip_enabled), stringResource(R.string.clip_enabled_desc), enabled) { enabled = it; Link.changeClipEnabled(it) }
+        }
+        // switched off: only the switch and the deletion of saved items stay, the rest has no effect
+        if (enabled) {
         Panel {
             SwitchRow(stringResource(R.string.clip_send), stringResource(R.string.clip_send_desc), Link.clipSend) { Link.changeClipSend(it) }
             SwitchRow(stringResource(R.string.clip_receive), stringResource(R.string.clip_receive_desc), Link.clipReceive) { Link.changeClipReceive(it) }
@@ -267,10 +389,10 @@ private fun ClipboardSection(onBack: () -> Unit) {
                 AppButton(onClick = { Link.resumeClip() }) { Text(stringResource(R.string.clip_resume)) }
             } else {
                 Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    AppOutlinedButton(onClick = { Link.pauseClip(15 * 60_000L) }, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.clip_pause_15)) }
-                    AppOutlinedButton(onClick = { Link.pauseClip(60 * 60_000L) }, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.clip_pause_1h)) }
-                    AppOutlinedButton(onClick = { Link.pauseClip(null) }, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.clip_pause_manual)) }
+                AdaptiveButtons {
+                    AppOutlinedButton(onClick = { Link.pauseClip(15 * 60_000L) }) { Text(stringResource(R.string.clip_pause_15)) }
+                    AppOutlinedButton(onClick = { Link.pauseClip(60 * 60_000L) }) { Text(stringResource(R.string.clip_pause_1h)) }
+                    AppOutlinedButton(onClick = { Link.pauseClip(null) }) { Text(stringResource(R.string.clip_pause_manual)) }
                 }
             }
         }
@@ -280,6 +402,7 @@ private fun ClipboardSection(onBack: () -> Unit) {
             val reason = when {
                 Link.state != LinkState.CONNECTED -> stringResource(R.string.clip_status_not_connected)
                 Link.guest -> stringResource(R.string.clip_status_guest)
+                !Capabilities.supports(Feature.CLIPBOARD) -> stringResource(R.string.clip_status_peer)
                 paused -> stringResource(R.string.clip_status_paused)
                 !Link.clipSend && !Link.clipReceive -> stringResource(R.string.clip_status_off)
                 else -> stringResource(R.string.clip_status_active)
@@ -294,14 +417,42 @@ private fun ClipboardSection(onBack: () -> Unit) {
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+        } else {
+            Text(stringResource(R.string.clip_status_disabled), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
         Panel {
-            SwitchRow(stringResource(R.string.clip_history), stringResource(R.string.clip_history_desc), history) {
-                history = it; Link.prefs.clipHistory = it
+            if (enabled) {
+                SwitchRow(stringResource(R.string.clip_history), stringResource(R.string.clip_history_desc), history) {
+                    history = it; Link.prefs.clipHistory = it
+                }
+                if (history) {
+                    Spacer(Modifier.height(8.dp))
+                    LimitChips(
+                        stringResource(R.string.clip_history_max),
+                        listOf(20 to "20", 50 to "50", 100 to "100", 0 to stringResource(R.string.limit_none)),
+                        maxItems,
+                    ) { maxItems = it; Link.prefs.clipHistoryMax = it; History.enforceClipLimits() }
+                    Spacer(Modifier.height(8.dp))
+                    LimitChips(
+                        stringResource(R.string.clip_history_days),
+                        listOf(
+                            1 to stringResource(R.string.keep_1d), 7 to stringResource(R.string.keep_7d),
+                            30 to stringResource(R.string.keep_30d), 0 to stringResource(R.string.keep_forever),
+                        ),
+                        keepDays,
+                    ) { keepDays = it; Link.prefs.clipHistoryDays = it; History.enforceClipLimits() }
+                    Text(
+                        stringResource(R.string.clip_history_limits_note),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
             }
-            Spacer(Modifier.height(8.dp))
             AppOutlinedButton(onClick = { History.clearClips() }) { Text(stringResource(R.string.clip_history_clear)) }
         }
-        Text(
+        if (enabled) Text(
             stringResource(R.string.clipboard_limit) + " " + stringResource(R.string.clip_sensitive_note),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -309,14 +460,40 @@ private fun ClipboardSection(onBack: () -> Unit) {
     }
 }
 
+// one choice out of a few numbers, as chips that scroll sideways at a large text size
+@Composable
+private fun LimitChips(label: String, options: List<Pair<Int, String>>, value: Int, onSelect: (Int) -> Unit) {
+    Text(label, style = MaterialTheme.typography.bodyLarge)
+    Row(Modifier.horizontalScrollCompat(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        options.forEach { (v, text) -> FilterChip(selected = value == v, onClick = { onSelect(v) }, label = { Text(text) }) }
+    }
+}
+
 @Composable
 private fun TransfersSection(onBack: () -> Unit) {
     var accept by remember { mutableStateOf(Link.prefs.autoAccept) }
     var quality by remember { mutableStateOf(Link.prefs.imageQuality) }
+    var acceptMax by remember { mutableIntStateOf(Link.prefs.autoAcceptMaxMb) }
+    var openRecv by remember { mutableStateOf(Link.prefs.openAfterReceive) }
     var clearing by remember { mutableStateOf(false) }
     SubScreen(stringResource(R.string.title_transfers), onBack) {
         Panel {
             SwitchRow(stringResource(R.string.accept_automatically), stringResource(R.string.accept_automatically_desc), accept) { accept = it; Link.prefs.autoAccept = it }
+            if (accept) {
+                Spacer(Modifier.height(8.dp))
+                LimitChips(
+                    stringResource(R.string.accept_max),
+                    listOf(10 to stringResource(R.string.mb_value, 10), 100 to stringResource(R.string.mb_value, 100),
+                        1000 to stringResource(R.string.mb_value, 1000), 0 to stringResource(R.string.limit_none)),
+                    acceptMax,
+                ) { acceptMax = it; Link.prefs.autoAcceptMaxMb = it }
+                Text(
+                    stringResource(R.string.accept_max_note),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+            }
         }
         Panel {
             Text(stringResource(R.string.image_quality), style = MaterialTheme.typography.titleMedium)
@@ -327,7 +504,7 @@ private fun TransfersSection(onBack: () -> Unit) {
             ).forEach { (q, title, desc) ->
                 Row(
                     Modifier.fillMaxWidth()
-                        .clickable(role = Role.RadioButton) { quality = q.key; Link.prefs.imageQuality = q.key }
+                        .selectable(selected = quality == q.key, role = Role.RadioButton) { quality = q.key; Link.prefs.imageQuality = q.key }
                         .padding(vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -348,6 +525,16 @@ private fun TransfersSection(onBack: () -> Unit) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            Text(
+                stringResource(R.string.name_conflict_note),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            Spacer(Modifier.height(8.dp))
+            SwitchRow(stringResource(R.string.open_after_receive), stringResource(R.string.open_after_receive_desc), openRecv) {
+                openRecv = it; Link.prefs.openAfterReceive = it
+            }
         }
         AppOutlinedButton(onClick = { clearing = true }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.clear_history)) }
     }
@@ -505,7 +692,10 @@ private fun DiagnosticsSection(onBack: () -> Unit) {
         "paired devices: ${Link.known.size}",
         "notifications enabled: $notif",
         "battery optimization ignored: $batt",
-        "clipboard send: ${Link.clipSend}, receive: ${Link.clipReceive}, paused: ${Link.clipPaused()}",
+        "clipboard feature: ${Link.clipEnabled}, send: ${Link.clipSend}, receive: ${Link.clipReceive}, paused: ${Link.clipPaused()}",
+        "clipboard history: ${Link.prefs.clipHistory}, max items: ${Link.prefs.clipHistoryMax}, days: ${Link.prefs.clipHistoryDays}",
+        "auto accept: ${Link.prefs.autoAccept}, ask above mb: ${Link.prefs.autoAcceptMaxMb}",
+        "pc protocol: ${if (Capabilities.protocol > 0) Capabilities.protocol.toString() else "n/a"}, clipboard supported: ${Capabilities.supports(Feature.CLIPBOARD)}",
         "auto connect: ${Link.prefs.autoConnect}",
     ).joinToString("\n")
 
@@ -529,7 +719,7 @@ private fun DiagnosticsSection(onBack: () -> Unit) {
 }
 
 @Composable
-private fun AboutSection(onBack: () -> Unit) {
+private fun AboutSection(onBack: () -> Unit, onOpen: (String) -> Unit) {
     val ctx = LocalContext.current
     val version = remember { runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: "" }
     SubScreen(stringResource(R.string.title_about), onBack) {
@@ -545,6 +735,40 @@ private fun AboutSection(onBack: () -> Unit) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+        SectionTitle(stringResource(R.string.sec_title))
+        // general description first, then the state of the connection right now. every statement is backed by the code (see PROJECT_STATUS.md)
+        Panel {
+            Text(
+                when {
+                    Link.state != LinkState.CONNECTED -> stringResource(R.string.sec_now_none)
+                    Link.guest -> stringResource(R.string.sec_now_guest, Link.pcName)
+                    else -> stringResource(R.string.sec_now_connected, Link.pcName)
+                },
+                style = MaterialTheme.typography.bodyLarge,
+            )
+        }
+        Panel {
+            listOf(
+                R.string.sec_how_title to R.string.sec_how, R.string.sec_enc_title to R.string.sec_enc,
+                R.string.sec_ver_title to R.string.sec_ver, R.string.sec_local_title to R.string.sec_local,
+                R.string.sec_keep_title to R.string.sec_keep, R.string.sec_perm_title to R.string.sec_perm,
+                R.string.sec_cloud_title to R.string.sec_cloud,
+            ).forEachIndexed { i, (title, body) ->
+                if (i > 0) Spacer(Modifier.height(12.dp))
+                Text(stringResource(title), style = MaterialTheme.typography.titleSmall)
+                Text(stringResource(body), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        // management stays where it already is, nothing is duplicated here
+        Panel {
+            NavRow(stringResource(R.string.title_devices), Icons.Default.Devices) { onOpen("devices") }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            NavRow(stringResource(R.string.title_clipboard), Icons.Default.ContentPaste) { onOpen("clipboard") }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            NavRow(stringResource(R.string.title_transfers), Icons.Default.SwapVert) { onOpen("transfers") }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            NavRow(stringResource(R.string.title_privacy), Icons.Default.Lock) { onOpen("privacy") }
         }
         Panel {
             Text(stringResource(R.string.fonts), style = MaterialTheme.typography.titleMedium)

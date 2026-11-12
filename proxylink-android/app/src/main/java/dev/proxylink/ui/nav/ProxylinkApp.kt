@@ -4,6 +4,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Dashboard
@@ -20,11 +22,13 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import dev.proxylink.R
 import dev.proxylink.core.Link
 import dev.proxylink.ui.components.fmtSize
 import dev.proxylink.ui.screens.DashboardScreen
@@ -38,10 +42,10 @@ private const val ROUTE_SCAN = "scan"
 private const val ROUTE_NFC = "nfc"
 private const val ROUTE_SECTION = "settings/{section}"
 
-enum class Tab(val route: String, val label: String, val icon: ImageVector) {
-    DASHBOARD("dashboard", "dashboard", Icons.Default.Dashboard),
-    SHARE("share", "share", Icons.Default.Share),
-    SETTINGS("settings", "settings", Icons.Default.Settings),
+enum class Tab(val route: String, @StringRes val label: Int, val icon: ImageVector) {
+    DASHBOARD("dashboard", R.string.tab_dashboard, Icons.Default.Dashboard),
+    SHARE("share", R.string.tab_share, Icons.Default.Share),
+    SETTINGS("settings", R.string.settings, Icons.Default.Settings),
 }
 
 private fun NavHostController.openTab(tab: Tab) = navigate(tab.route) {
@@ -65,7 +69,7 @@ fun ProxylinkApp() {
                             selected = current == tab.route || current.startsWith(tab.route + "/"),
                             onClick = { nav.openTab(tab) },
                             icon = { Icon(tab.icon, contentDescription = null) },
-                            label = { Text(tab.label) },
+                            label = { Text(stringResource(tab.label)) },
                         )
                     }
                 }
@@ -76,8 +80,10 @@ fun ProxylinkApp() {
             navController = nav,
             startDestination = Tab.DASHBOARD.route,
             modifier = Modifier.padding(padding),
-            enterTransition = { fadeIn(tween(220)) + slideInHorizontally(tween(220)) { it / 10 } },
-            exitTransition = { fadeOut(tween(160)) },
+            enterTransition = { fadeIn(tween(180)) + slideInHorizontally(tween(180)) { it / 14 } },
+            exitTransition = { fadeOut(tween(120)) },
+            popEnterTransition = { fadeIn(tween(180)) },
+            popExitTransition = { fadeOut(tween(120)) + slideOutHorizontally(tween(120)) { it / 14 } },
         ) {
             composable(Tab.DASHBOARD.route) {
                 DashboardScreen(onScan = { nav.navigate(ROUTE_SCAN) }, onNfc = { nav.navigate(ROUTE_NFC) }, onShowAll = { nav.openTab(Tab.SHARE) })
@@ -89,6 +95,7 @@ fun ProxylinkApp() {
                     section = entry.arguments?.getString("section") ?: "",
                     onBack = { nav.popBackStack() },
                     onScan = { nav.navigate(ROUTE_SCAN) },
+                    onOpen = { nav.navigate("settings/$it") },
                 )
             }
             composable(ROUTE_NFC) {
@@ -110,10 +117,10 @@ fun ProxylinkApp() {
     Link.requests.firstOrNull()?.let { r ->
         AlertDialog(
             onDismissRequest = {},
-            title = { Text("incoming from ${r.from.ifBlank { Link.pcName }}") },
-            text = { Text(if (r.kind == "file") "${r.name} (${fmtSize(r.size)})" else "${r.kind}: ${r.name}") },
-            confirmButton = { TextButton(onClick = { Link.accept(r) }) { Text("accept") } },
-            dismissButton = { TextButton(onClick = { Link.deny(r) }) { Text("deny") } },
+            title = { Text(stringResource(R.string.incoming_from, r.from.ifBlank { Link.pcName })) },
+            text = { Text(if (r.kind == "file") "${r.name} (${fmtSize(r.size)})" else stringResource(R.string.incoming_kind, r.kind, r.name)) },
+            confirmButton = { TextButton(onClick = { Link.accept(r) }) { Text(stringResource(R.string.accept)) } },
+            dismissButton = { TextButton(onClick = { Link.deny(r) }) { Text(stringResource(R.string.deny)) } },
         )
     }
 }

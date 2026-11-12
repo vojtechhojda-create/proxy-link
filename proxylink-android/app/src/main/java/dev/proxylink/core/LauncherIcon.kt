@@ -15,6 +15,9 @@ object LauncherIcon {
         "navyOrange" to "dev.proxylink.LauncherNavyOrange",
     )
 
+    // palettes without an alias show the brand icon
+    fun hasOwn(palette: String) = palette in aliases
+
     fun apply(ctx: Context, byPalette: Boolean, palette: String, systemColors: Boolean) {
         val key = if (byPalette && !systemColors && palette in aliases) palette else DEFAULT
         val pm = ctx.packageManager
