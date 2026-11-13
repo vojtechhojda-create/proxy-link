@@ -461,6 +461,11 @@ object Link {
         main.postDelayed(retry, minOf(3000L shl minOf(retries - 1, 4), 30_000L))
     }
 
+    // version name of this installed app, as sent to the pc and shown in about
+    val appVersion: String by lazy {
+        runCatching { app.packageManager.getPackageInfo(app.packageName, 0).versionName }.getOrNull().orEmpty()
+    }
+
     private fun tx(m: Map<String, Any>) { ws?.send(JSONObject(m).toString()) }
 
     private fun handle(m: JSONObject) {
@@ -468,8 +473,12 @@ object Link {
             "hello" -> {
                 nonce = m.getString("nonce"); pcId = m.getString("id")
                 helloName = m.optString("name").ifBlank { pcName }
-                Capabilities.update(m.optInt("v", 0), m.optJSONArray("caps"))
-                val o = mutableMapOf<String, Any>("t" to "hello", "id" to prefs.id, "name" to prefs.name)
+                Capabilities.update(m.optInt("v", 0), m.optJSONArray("caps"), m.optString("app"), m.optInt("min", 0))
+                // this app tells the pc its protocol, version and features; the pc of today ignores these fields
+                val o = mutableMapOf<String, Any>(
+                    "t" to "hello", "id" to prefs.id, "name" to prefs.name,
+                    "v" to Capabilities.MOBILE_PROTOCOL, "app" to appVersion, "caps" to Capabilities.MOBILE_CAPS,
+                )
                 prefs.secret(pcId)?.let { o["mac"] = hmac(it, nonce) }
                 tx(o)
             }

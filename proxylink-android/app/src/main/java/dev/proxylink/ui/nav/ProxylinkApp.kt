@@ -1,6 +1,8 @@
 package dev.proxylink.ui.nav
 
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -29,6 +31,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import dev.proxylink.R
+import dev.proxylink.ui.theme.UiStore
 import dev.proxylink.core.Link
 import dev.proxylink.ui.components.fmtSize
 import dev.proxylink.ui.screens.DashboardScreen
@@ -80,10 +83,11 @@ fun ProxylinkApp() {
             navController = nav,
             startDestination = Tab.DASHBOARD.route,
             modifier = Modifier.padding(padding),
-            enterTransition = { fadeIn(tween(180)) + slideInHorizontally(tween(180)) { it / 14 } },
-            exitTransition = { fadeOut(tween(120)) },
-            popEnterTransition = { fadeIn(tween(180)) },
-            popExitTransition = { fadeOut(tween(120)) + slideOutHorizontally(tween(120)) { it / 14 } },
+            // with "remove animations" on in the system the screens change at once
+            enterTransition = { if (UiStore.animations) fadeIn(tween(180)) + slideInHorizontally(tween(180)) { it / 14 } else EnterTransition.None },
+            exitTransition = { if (UiStore.animations) fadeOut(tween(120)) else ExitTransition.None },
+            popEnterTransition = { if (UiStore.animations) fadeIn(tween(180)) else EnterTransition.None },
+            popExitTransition = { if (UiStore.animations) fadeOut(tween(120)) + slideOutHorizontally(tween(120)) { it / 14 } else ExitTransition.None },
         ) {
             composable(Tab.DASHBOARD.route) {
                 DashboardScreen(onScan = { nav.navigate(ROUTE_SCAN) }, onNfc = { nav.navigate(ROUTE_NFC) }, onShowAll = { nav.openTab(Tab.SHARE) })

@@ -20,6 +20,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.proxylink.R
 import dev.proxylink.core.Capabilities
+import dev.proxylink.core.Compat
 import dev.proxylink.core.Feature
 import dev.proxylink.core.Link
 import dev.proxylink.core.LinkState
@@ -36,6 +37,8 @@ fun QuickActionsPanel(actions: SendActions) {
             TargetPicker()
             SendButtons(actions)
             if (Link.transfersBlocked) QuickNote(stringResource(R.string.id_blocked_note))
+            // versions that do not fit say so; unequal versions with a common baseline add no note, the basic transfers work
+            if (connected) compatNote(Capabilities.compat)?.let { QuickNote(stringResource(it)) }
             // why a button is dimmed: a missing pc capability or the guest connection, never presented as "switched off"
             if (connected && !Capabilities.supports(Feature.FILES)) QuickNote(stringResource(R.string.qa_files_unsupported))
             else if (connected && Link.guest && Link.clipEnabled) QuickNote(stringResource(R.string.clip_status_guest))
@@ -48,7 +51,7 @@ fun QuickActionsPanel(actions: SendActions) {
                     // sending over nfc between two phones does not exist in the app: the row is information, not a button
                     InfoRow(Icons.Default.Nfc, stringResource(R.string.qa_nfc), stringResource(R.string.qa_nfc_unavailable))
                     // the pc app has no screen sharing message yet, so there is no switch
-                    InfoRow(Icons.Default.ScreenShare, stringResource(R.string.qa_screen), stringResource(R.string.qa_screen_soon))
+                    InfoRow(Icons.Default.ScreenShare, stringResource(R.string.qa_screen), stringResource(if (Capabilities.supports(Feature.SCREEN)) R.string.qa_screen_pc_ready else R.string.qa_screen_soon))
                 }
             }
         }
@@ -70,4 +73,11 @@ private fun InfoRow(icon: ImageVector, title: String, subtitle: String) {
             Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
+}
+
+// the one line the compatibility state adds under the quick actions; null when there is nothing to warn about
+fun compatNote(c: Compat): Int? = when (c) {
+    Compat.PC_TOO_OLD -> R.string.compat_note_pc_old
+    Compat.MOBILE_TOO_OLD -> R.string.compat_note_mobile_old
+    else -> null
 }

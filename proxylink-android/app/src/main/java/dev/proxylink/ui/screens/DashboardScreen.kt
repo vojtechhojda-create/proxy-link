@@ -72,7 +72,7 @@ private fun ConnectedDashboard(onShowAll: () -> Unit) {
 
         SectionTitle(stringResource(R.string.recent))
         if (recent.isEmpty()) {
-            Text(stringResource(R.string.nothing_received), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            StateNote(stringResource(R.string.nothing_received))
         } else {
             recent.forEach { HistoryRow(it, actions = false) }
             TextButton(onClick = onShowAll) { Text(stringResource(R.string.all_items)) }

@@ -9,6 +9,7 @@ import dev.proxylink.core.Link
 import dev.proxylink.ui.screens.ShareConfirm
 import dev.proxylink.ui.theme.FontStore
 import dev.proxylink.ui.theme.ShapeStore
+import dev.proxylink.ui.theme.UiStore
 import dev.proxylink.ui.theme.PaletteStore
 import dev.proxylink.ui.theme.ProxylinkTheme
 
@@ -21,6 +22,7 @@ class ShareActivity : ComponentActivity() {
         PaletteStore.load(Link.prefs.palette, Link.prefs.dynamicColor)
         FontStore.load(Link.prefs.font)
         ShapeStore.load(Link.prefs.shape)
+        UiStore.load(Link.prefs, this)
 
         val uris: List<Uri> = when (intent.action) {
             Intent.ACTION_SEND -> listOfNotNull(intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java))

@@ -1,6 +1,63 @@
 # project status
 
-## celky 3 a 7: kontrola podpisu aplikace a závěrečná kontrola (android versionName 2.2.2, versionCode 5) - aktuální úkol
+## SOUHRN STAVU (zdroj pravdy; novější než sekce níže, ty jsou historie jednotlivých bloků)
+verze: android versionName 2.2.2, versionCode 5; pc package.json 2.2.1; protokol 2 (mobil i pc). každá strana ukazuje svou skutečnou verzi, společné číslo neexistuje
+OVĚŘENO SKUTEČNĚ SPUŠTĚNÝM: pc `npm ci`, `npm run build` (tsc) a `node test/selftest.cjs` ("selftest ok", včetně kontrol verzí a kompatibility). nic dalšího
+NEOVĚŘENO: android build (v prostředí není android sdk ani gradle, kód mobilu se od úprav v tomto cyklu nikdy nepřeložil, chyby překladu nelze vyloučit); windows EXE (na linuxu "wine is required"); cokoli na telefonu; spolupráce mobil-pc s novými poli v hello. APK ani EXE proto nevznikly. push, PR ani merge se nedělaly a nic není připravené do main
+
+hotovo v kódu (vše neověřeno buildem):
+- vzhled: 10 motivů (6 tmavých, 4 světlé) + systémové barvy s náhledem před použitím, písmo (výběr, velikost textu 85-130 %, mono zvlášť), vzhled rozhraní (zaoblení, hustota, velikost prvků), obnovit výchozí vzhled, kontrast loga paper; sjednocené stavy prázdný / načítání / chyba (StateNote); animace podle systémového "odstranit animace"
+- nástěnka: panel rychlých akcí (soubor / fotka / schránka, "další": nfc a sdílení obrazovky jen jako informace); pravdivé stavy přenosů; schránka hlásí úspěch jen když se něco předalo spojení
+- oznámení: spojení s odpojením, žádost přijmout / odmítnout, průběh přenosu se zrušením, timeout žádosti bez odpovědi (5 min), soukromí na zamčené obrazovce (volba, výchozí zapnuto)
+- sdílení: opravený share-target na aliasech, pravdivý výsledek odeslání, důvod neaktivního tlačítka; widgety (soubor / fotka / schránka, stav připojení) existovaly, ověřeno zapojení
+- soukromí a zabezpečení: ruční sha-256 souboru, zámek spojení s podrobnostmi a omezeními, diagnostika bez citlivých údajů, kontrola podpisu aplikace (mechanismus hotový, referenční otisk PRÁZDNÝ)
+- verze a kompatibilita: mobil i pc oznamují v / app / caps (pc i min), čtou a zobrazují protistranu, stavy kompatibility, nic se nepouští bez potvrzené podpory; příliš staré protistrany se zablokují s textem "vyžaduje aktualizaci"
+
+odloženo nebo nelze bez nového protokolu / rozhodnutí: nfc telefon-telefon (chybí transport mezi telefony), přenos obrazovky (v protokolu není, caps "screen" se neukáže bez oznámení), pozastavení přenosů, zpráva pro zrušení přenosu (dnes se používá share.done s neplatným otiskem), stažení čekající žádosti na straně pc, jemné úpravy ikon ve vzhledu, vlastní launcher ikony pro další motivy, celoplošný průchod mezerami po obrazovkách
+
+čeká na uživatele: 1) android build na windows a chyby překladu; 2) veřejný sha-256 otisk release certifikátu do proxylink-android/app/src/main/res/values/release_cert.xml (bez něj kontrola podpisu nic neblokuje); 3) windows build pc; 4) rozhodnutí o případném protokolu 3 (zrušení přenosu zprávou, sdílení obrazovky, přímý přenos telefon-telefon)
+build na windows: android `cd proxylink-android ; gradle :app:assembleDebug --stacktrace` (jdk 17, android sdk, gradle 8.9; výstup app\build\outputs\apk\debug\app-debug.apk, debug podpis). pc `cd proxylink-pc ; npm install ; npm run build ; node test\selftest.cjs ; npx electron-builder --win --publish never` (výstup release\*.exe, nepodepsané). stejné postupy dělají github workflows android.yml a pc.yml
+dokumentace: README.md (uživatelský popis a build), FEATURE_PLAN.md (stav požadavků), tento soubor (stav a historie)
+
+# historie bloků (nejnovější nahoře; slova "aktuální úkol" u starších bloků už neplatí)
+
+## celek: pc část verzí a kompatibility (pc package.json 2.2.1, android 2.2.2 / versionCode 5)
+na výslovný pokyn uživatele se TENTOKRÁT upravil pc kód, jen pro verze a kompatibilitu; protokol je rozšířen jen o volitelná pole v hello, QR generátor a párování se nezměnily. starší aplikace bez nových polí fungují dál
+ověřeno na pc (skutečně spuštěno): npm ci, npm run build (tsc) bez chyb, node test/selftest.cjs = "selftest ok" včetně nových kontrol (hello pc obsahuje v / min / caps; telefon bez oznámené verze je "neznámý" a funguje; telefon s protokolem 1 je označen "update-mobile", dostane share.deny a nic neposílá ani nepřijímá; protokol 2 = ok; protokol 9 = "update-pc"; neplatné caps se ignorují)
+pc nově: hello posílá v (PROTOCOL 2), app (verze z package.json / app.getVersion), caps (text, files, clipboard) a min (MIN_MOBILE_PROTOCOL 2); z hello telefonu čte v / app / caps s ověřením (nesmyslné hodnoty = neoznámeno); stav kompatibility na zařízení: ok / unknown (starší aplikace, základní přenosy zůstávají) / update-mobile (protokol pod minimem: nic se neposílá ani nepřijímá, share.request a clip.update se odmítnou) / update-pc (telefon mluví novějším protokolem, základní přenosy fungují); text a odkazy, soubory a schránka se neposílají zařízení, které je mezi caps neuvedlo; relay na jiné zařízení se odmítne, pokud cíl funkci neumí. UI pc: řádek s verzí a protokolem pc, u zařízení verze aplikace a věta "requires a mobile update..." / "requires a pc update for the newest features..." / "version not announced, basic transfers only"
+NEOVĚŘENO: windows EXE se nesestavil (na linuxu "wine is required"), takže zobrazení v Electron okně je neověřené; mobil proti skutečnému pc s novými poli v hello nebyl zkoušen; android build neproběhl (není sdk), kód mobilu se nikdy nepřeložil. push do main není připravený
+mobil: nic dalšího se nemuselo měnit, už četl v / app / caps / min a posílal v / app / caps. mobil nemá žádné hotové funkce, které čekají jen na pc: sdílení obrazovky, NFC telefon-telefon a pozastavení přenosů v aplikaci neexistují (je jen brána přes capability "screen", která se bez oznámení pc nikdy neukáže jako dostupná). zrušení odeslání z telefonu používá existující share.done s neplatným otiskem
+další krok: android build na windows a chyby překladu; windows build pc (příkaz v sekci závěrečný build, nyní verze 2.2.1); potom případně nová funkce na obou stranách (např. zpráva pro zrušení přenosu), která potřebuje nový protokol 3
+
+## celek: verze a kompatibilita pc-mobil, strana mobilu (android versionName 2.2.2, versionCode 5; pc package.json 2.2.0 beze změny)
+BUILD NEPROBĚHL: v prostředí není android sdk ani gradle (pokus se neopakoval). kód se od mých úprav nikdy nepřeložil, chyby překladu nelze vyloučit. proto NENÍ připravený push do main. ověřeno jen skriptem: R.string klíče existují, cs i en mají 413 unikátních klíčů, závorky sedí, res xml a manifest jsou dobře utvořené (není to build)
+rozpracovaný celek (stavy a mezery) byl dokončen v předchozím kroku: StateNote, hustota a velikost prvků
+PC KÓD SE NEMĚNIL (platí zákaz z projektových pravidel). co se bez změny pc udělat dá, je hotovo v mobilu; co vyžaduje pc, je níže jako závislost
+hotovo v mobilu:
+- model oddělující tři věci (core/Capabilities.kt): VERZE (číslo protokolu a verze aplikace, které protistrana oznámila), SCHOPNOSTI (seznam caps) a SKUTEČNÝ STAV (Link.state, volba uživatele v Prefs). Feature má minProtocol; základní funkce text / soubory / schránka patří do protokolu 2, novější (SCREEN, protokol 3) se berou jen když je protistrana oznámí. neznámá schopnost není potvrzená podpora: bez seznamu caps platí jen základ protokolu 2, nic novějšího; aplikace nic nepustí, co druhá strana neumí
+- stav kompatibility Compat: neznámá / stejné verze / pc novější / pc starší / pc příliš staré (protokol menší než 2) / mobil příliš starý (pc oznámí min větší než protokol aplikace). při nestejných verzích zůstanou základní přenosy funkční; při příliš starém pc nebo mobilu se nic neposílá a UI říká "vyžaduje aktualizaci pc" respektive "vyžaduje aktualizaci aplikace"
+- mobil oznamuje pc v hello: v (protokol 2), app (verze aplikace), caps (text, files, clipboard). dnešní pc čte z hello jen id, name a mac a ostatní pole ignoruje (ověřeno čtením server.ts), takže je to zpětně kompatibilní
+- mobil čte z hello pc: v (dnes posílá 2), a pokud je pc někdy pošle, také app, caps a min
+- UI: o aplikaci > verze a kompatibilita (verze telefonu a protokolu, verze a protokol pc nebo "verze neoznámena", stav kompatibility slovy a ikonou chyby, u každé základní funkce podporováno / vyžaduje aktualizaci pc, vysvětlení že nic není ukázáno jako potvrzené bez oznámení); poznámka pod panelem rychlých akcí jen při příliš starém pc nebo mobilu; řádek sdílení obrazovky říká "vyžaduje aktualizaci pc", dokud pc funkci neoznámí, a i potom jen že aplikace ji zatím neumí; diagnostika má protokol, verzi protistrany, stav kompatibility a podporované funkce (bez jmen a adres)
+- změněno: Capabilities.kt, Link.kt (hello, appVersion), QuickActions.kt, SettingsSections.kt, strings cs/en
+ZÁVISLOST NA PC (odloženo, pc se nemění): 1) pc nyní posílá v hello jen v: 2 a nepošle verzi aplikace; mobil proto o verzi pc zná jen protokol a zobrazí "verze neoznámena". 2) pc nečte v / app / caps z hello mobilu a nikde nehlásí "vyžaduje aktualizaci mobilu". k dokončení: pc má v hello poslat app (verzi z package.json), caps a min, z hello mobilu číst v / app / caps a při v menším než jeho min zobrazit "vyžaduje aktualizaci mobilu"; mobil už to čte a posílá
+NENÍ ověřeno: překlad, chování proti skutečnému pc 2.2.0 (hello s přidanými poli), vzhled panelu verzí na zařízení, scénáře se starším / novějším pc (nelze nasimulovat bez změny pc)
+další krok: android build na windows a chyby překladu; poté rozhodnutí, zda se pc smí upravit podle závislosti výše
+
+## celek: nastavení vzhledu v podkategoriích + sjednocené stavy (android versionName 2.2.2, versionCode 5)
+BUILD NEPROBĚHL: v prostředí není android sdk ani gradle a maven repozitáře nejsou dosažitelné (pokus se neopakoval). kód se od mých úprav nikdy nepřeložil, chyby překladu nelze vyloučit. proto NENÍ připravený push do main; po úspěšném buildu na vašem windows doporučuji pracovní větev, ne main. ověřeno jen skriptem: R.string klíče existují, cs i en mají 392 unikátních klíčů, závorky sedí, res xml a manifest jsou dobře utvořené (není to build)
+dokončeno nejdřív (rozpracované): sjednocení stavů. nová komponenta StateNote (ui/components/Common.kt) pro prázdný / načítací / chybový stav; typ je rozlišen ikonou nebo kolečkem, nejen barvou. použita na nástěnce, ve sdílení, v seznamu zařízení (chyba posledního pokusu jako chybový stav), v potvrzení sdílení a na obrazovce nepřipojeno (hledání = načítací stav, chyba párování = chybový stav). zbytečné mezery: řeší nová volba hustoty, jiný celoplošný průchod mezerami jsem neudělal (bez zobrazení na zařízení by byl odhad)
+vzhled, nová struktura (ui/screens/AppearanceSections.kt, vyřazeno ze SettingsSections.kt): rozcestník vzhledu (motiv / písmo / vzhled rozhraní + obnovit výchozí vzhled) a tři podstránky přes existující navigaci settings/<sekce>, žádná nová hlavní karta
+- motiv: 10 motivů, 6 tmavých (brand, navy orange, graphite, forest, plum, ocean) a 4 světlé (paper, brand light, sand, mint) + systémové barvy. nové ocean, brand light, sand, mint jsou v Palettes.seeded; kontrast (počítán skriptem): text na povrchu >= 14:1, vedlejší text >= 7:1, akcent na pozadí >= 4,6:1, text na akcentu >= 5:1, okraje >= 3,7:1, logo čára na dlaždici >= 7,8:1. náhled před použitím (logo přebarvené podle motivu, panel, tlačítka, chyba; nic v náhledu není ovládací prvek) a tlačítko "použít tento motiv"; výběr se ukládá po použití. ikona aplikace podle motivu zůstává (launcher má vlastní ikonu jen pro brand a navy orange, ostatní fallback, text to říká)
+- písmo: výběr fontu (stávající), velikost textu 85 / 100 / 115 / 130 % (násobí systémovou velikost, UiStore.textScale přes LocalDensity), neproporcionální písmo zvlášť (bundled inconsolata / systémové, MonoStyle ho sleduje), živý náhled; vše ukládáno do Prefs
+- vzhled rozhraní: zaoblení (stávající), hustota kompaktní / výchozí / volná (mezery v panelech a mezi bloky přes Panel a SubScreen), velikost prvků menší / výchozí / větší (škáluje dp, velikost textu se kompenzuje a nemění), informace o animacích (podle systémového "odstranit animace"; přechody mezi obrazovkami se při vypnutých animacích vypnou, indikátor průběhu přeskočí animaci), náhled. každá volba má krátký popis
+- obnovit výchozí vzhled vrací jen vizuální preference včetně nových; zařízení, historii a zabezpečení nemění
+- NEIMPLEMENTOVÁNO: "jemné úpravy ikon" (volitelné v zadání, žádný falešný přepínač)
+- změněno: UiScale.kt (nový), AppearanceSections.kt (nový), Palette.kt, Type.kt, Theme.kt, Prefs.kt, MainActivity.kt, ShareActivity.kt, Common.kt, ProxylinkApp.kt, SettingsSections.kt, NotConnectedScreen.kt, DashboardScreen.kt, ShareScreen.kt, ShareConfirmScreen.kt, strings cs/en
+NENÍ ověřeno: překlad; vzhled stránek, náhledů a světlých motivů na zařízení (systémové lišty, spuštění aplikace, widgety ve světlých motivech); velikost prvků a text při velkém systémovém písmu; Density přes LocalDensity v dialozích; callable ColorScheme.copy ve světlých motivech
+další krok: spustit android build na windows (příkaz níže v sekci závěrečný build) a poslat chyby překladu; potom doplnit release otisk certifikátu (res/values/release_cert.xml)
+
+## celky 3 a 7: kontrola podpisu aplikace a závěrečná kontrola (android versionName 2.2.2, versionCode 5)
 build neproběhl (v prostředí není android sdk ani gradle), na telefonu netestováno. ověřeno jen skriptem: R.string klíče existují, cs i en mají 354 unikátních klíčů, závorky sedí, všechny res xml a manifest jsou dobře utvořené (není to build). poslední překlad kódu nikdy neproběhl, takže chyby překladu nelze vyloučit
 celek 3, kontrola podpisu: ČÁSTEČNĚ, ČEKÁ NA OTISK. repozitář neobsahuje veřejný sha-256 otisk release certifikátu a nevymýšlel jsem ho. hotovo: AppIdentity (core/AppIdentity.kt) čte sha-256 certifikátu, kterým je nainstalovaná aplikace podepsaná, a porovnává ho s polem res/values/release_cert.xml (release_cert_sha256, zatím PRÁZDNÉ). stavy: debug (build je debuggable, nic se neblokuje), neověřeno (referenční otisk není nastaven, nic se neblokuje), nelze přečíst (nic se neblokuje), shoda, prokázaný nesoulad. blokuje se jen prokázaný nesoulad (otisk nastaven, ne debug, podpis není v seznamu); dva zápisy v poli pokryjí legitimní rotaci klíče. blokace je ve společné vrstvě Link (sendText, sendFile, doPushClipboard, příchozí share.request se odmítne, příchozí clip.update se ignoruje), tedy pokrývá sdílení z androidu, widgety, rychlé akce, oznámení i schránku; tlačítka rychlých akcí jsou neaktivní s vysvětlením. zařízení, historie, diagnostika a nastavení se nemažou. v o aplikaci je panel "podpis aplikace" se stavem, skutečným otiskem této instalace (kopírovatelný k porovnání s vaším certifikátem) a omezeními: kontrola je místní, kdo aplikaci upraví, může ji obejít, o druhém zařízení nic neříká, instalace mimo obchod není důkaz úpravy. diagnostika má řádek se stavem. Play Integrity ani backend se nepřidávají, podpisový klíč se negeneruje ani nemění
 CO JE POTŘEBA OD VÁS: veřejný sha-256 otisk release certifikátu (64 hex znaků, bez tajných částí) doplnit do res/values/release_cert.xml; bez něj je výsledek vždy "neověřeno" a nic se neblokuje. release podepisování v build.gradle.kts není nastaveno, takže debug APK je debug
@@ -10,7 +67,7 @@ NENÍ ověřeno: překlad, chování na telefonu, prázdné string-array v aapt2
 NEDOKONČENO / v backlogu: kontrola podpisu s reálným otiskem (viz výše), nfc telefon-telefon (chybí transport), sdílení obrazovky a pozastavení přenosů (potřebují pc), kompaktní mezery a sjednocení prázdných / chybových / načítacích stavů po všech obrazovkách (celek 3 z původního zadání je jen částečný: kontrast, zaoblení, panel akcí a stránka vzhledu hotové)
 další krok: spustit android build na windows a poslat chyby; doplnit otisk certifikátu
 
-## celky 5 a 6: nfc telefon-telefon a widgety (verze v kódu pořád 2.0.0-alpha.4, versionCode 4) - aktuální úkol
+## celky 5 a 6: nfc telefon-telefon a widgety (verze v kódu pořád 2.0.0-alpha.4, versionCode 4)
 build neproběhl (v prostředí není android sdk ani gradle), na telefonu netestováno. ověřeno jen skriptem: R.string klíče existují, cs i en mají 342 unikátních klíčů, závorky sedí (není to build).
 celek 5, nfc telefon-telefon: NEIMPLEMENTOVÁNO, ZÁVISLOST. v projektu není přímý transport android-android; telefony se spojují jen přes pc a nový přímý lokální server by byl paralelní transport (zakázáno) a vyžaduje změny protokolu. nfc nese jen zahájení spojení, soubory by musely jít síťovým přenosem mezi telefony. ověřeno čtením: nfc dnes čte jen párovací štítky (NFC_PHONE_TO_PHONE = false), texty obrazovky podle toho říkají "nfc štítek", panel rychlých akcí ukazuje nfc jen jako informaci "zatím není", žádný falešně aktivní prvek. nic se nemění. k dokončení je potřeba rozhodnutí o transportu mezi telefony (a podle něj změna pc)
 celek 6, widgety: už byly implementované, ověřeno zapojení čtením kódu, nic nepřepisováno. soubor / fotka / schránka (ActionsWidget, plus ClipWidget na jedno klepnutí) a stav připojení (StatusWidget) jsou v manifestu, mají layouty a widget_info; společný motiv přes Widgets.colors (paleta z aplikace nebo systémové barvy), překresluje je změna palety, přepínač schránky, změna stavu spojení i reset vzhledu; volba schránky skryta, když je schránka v nastavení vypnutá; stav se čte z Link.state a po zabití procesu začíná jako nepřipojeno, ne jako odhad; widget souboru a fotky nic neposílá bez výběru uživatele, bez spojení picker neotevře
@@ -19,7 +76,7 @@ změněno: WidgetSendActivity.kt
 NENÍ ověřeno: překlad, vzhled widgetů na ploše (světlá paleta, velké písmo), chování po restartu launcheru
 další krok: celek 7, závěrečná kontrola v2.2.2 (verze, migrace, cs/en, přístupnost, stavy, soulad dokumentace). celek 3 zůstává zablokovaný veřejným otiskem certifikátu. protože build zatím nikdy neproběhl, doporučuji před celkem 7 spustit android build na windows a poslat případné chyby
 
-## celek 4: systémové sdílení a přímé cíle zařízení (verze v kódu pořád 2.0.0-alpha.4, versionCode 4) - aktuální úkol
+## celek 4: systémové sdílení a přímé cíle zařízení (verze v kódu pořád 2.0.0-alpha.4, versionCode 4)
 build neproběhl (v prostředí není android sdk ani gradle), na telefonu netestováno. ověřeno jen skriptem: R.string klíče existují, cs i en mají 342 unikátních klíčů bez duplicit, závorky sedí (není to build).
 celek 3 (kontrola release podpisu) je ZABLOKOVANÝ: chybí váš veřejný sha-256 otisk release certifikátu, bez něj se neimplementuje ani falešné blokování. po dodání otisku se doplní.
 ověřeno čtením kódu (už existovalo, nepřepisováno): ShareActivity (SEND, SEND_MULTIPLE, PROCESS_TEXT) drží obsah v potvrzovací obrazovce a nic neposílá samo; soubory se otevírají v Link.sendFile ještě před zavřením okna, takže velký soubor přežije zavření potvrzení; cíl "pc:<id>" (spárované pc, přepnutí spojení) a "dev:<id>" (zařízení přes připojené pc); zkratky Shortcuts.publish + shortcuts.xml; jedno spojení naráz (přepnutí cíle = přepnutí spojení)
@@ -38,7 +95,7 @@ android: APK NEBYL sestaven. v prostředí není android sdk ani gradle a maven 
 pc: po npm ci proběhlo npm run build (tsc) a node test/selftest.cjs, výsledek "selftest ok" (pc kód beze změny, verze 2.2.0). windows EXE NEBYL sestaven: electron-builder --win na linuxu selhal na "wine is required", žádný instalátor ani portable exe nevznikl (složka win-unpacked není použitelný výstup a nepředává se). příkaz pro windows: cd proxy-link\proxylink-pc ; npm install ; npm run build ; node test\selftest.cjs ; npx electron-builder --win --publish never ; výsledek proxylink-pc\release\*.exe (nsis instalátor a portable). exe nebude podepsaný (kód podpis není nastaven). stejný postup dělá workflow pc.yml
 kompatibilita: pc aplikace 2.2.0 nepodporuje nové mobilní funkce, které by potřebovaly pc update (sdílení obrazovky, zrušení přenosu zprávou). zrušení odeslání z telefonu používá existující zprávu share.done s neplatným otiskem, takže na pc končí jako nepodařený přenos; kompatibilita mobil-pc nebyla ověřena na zařízeních
 
-## celek 2: soukromí a zabezpečení (verze v kódu pořád 2.0.0-alpha.4, versionCode 4) - aktuální úkol
+## celek 2: soukromí a zabezpečení (verze v kódu pořád 2.0.0-alpha.4, versionCode 4)
 build neproběhl (v prostředí není android sdk ani gradle), na telefonu netestováno. ověřeno jen skriptem: R.string klíče existují, cs i en mají 339 unikátních klíčů bez duplicit, závorky sedí (není to build).
 už existovalo a jen jsem ověřil čtením kódu: stránka soukromí (stav oprávnění, zapomenout zařízení), o aplikaci (autor, verze, popis šifrování, místních dat a oprávnění), diagnostika s náhledem, kopírováním na žádost a bez názvů, adres, tajemství i obsahu schránky, mazání historie v přenosech. pin certifikátu je v kódu skutečný (X509TrustManager porovná sha-256 otisk s uloženým, jinak výjimka; název hostitele se nekontroluje) a text o tom v aplikaci to říká
 hotovo v kódu:
@@ -49,7 +106,7 @@ NENÍ ověřeno: překlad, výběr souboru a výpočet na telefonu (velké soubo
 NENÍ součástí tohoto celku: kontrola podpisu release aplikace (bez veřejného otisku certifikátu), kryptografie se nemění, žádné nové varování o kontrolách, které aplikace neprovádí
 další krok: celek 3 (kontrola release podpisu) potřebuje váš veřejný sha-256 otisk release certifikátu; bez něj se označí závislost a pokračuje se celkem 4 (systémové sdílení a přímé cíle zařízení)
 
-## celek 1: interaktivní oznámení + spolehlivost bridge (verze v kódu pořád 2.0.0-alpha.4, versionCode 4) - aktuální úkol
+## celek 1: interaktivní oznámení + spolehlivost bridge (verze v kódu pořád 2.0.0-alpha.4, versionCode 4)
 build neproběhl (v prostředí není android sdk ani gradle), na telefonu netestováno. ověřeno jen skriptem: R.string klíče existují, cs i en mají 321 unikátních klíčů, závorky sedí (není to build).
 oprava z minulého celku: state_on byl v obou strings.xml dvakrát (duplicitní resource by shodil build), duplicita odstraněna.
 hotovo v kódu:
@@ -67,7 +124,7 @@ NENÍ ověřeno: překlad, chování oznámení na androidu 13+ (kanály, veřej
 NEPODPOROVÁNO a nedělám to: pozastavení / obnovení (protokol nemá), zrušení čekající žádosti tak, aby ji pc zrušil (protokol nemá), seskupení oznámení vlastním souhrnem (necháno na systému), klepnutí na konkrétní přenos otevře jen aplikaci (aplikace nemá obrazovku pro jednotlivý přenos). zbývá ověřit: přijetí / odmítnutí chování při vypnutém povolení oznámení (aplikace povolení nevynucuje)
 další krok: celek 2 (soukromí a zabezpečení: pravdivé informace, ruční SHA-256, oprávnění, místní data, diagnostika bez citlivých údajů)
 
-## celek: nastavení + vzhled + panel rychlých akcí + pravdivé stavy (verze v kódu pořád 2.0.0-alpha.4, versionCode 4) - aktuální úkol
+## celek: nastavení + vzhled + panel rychlých akcí + pravdivé stavy (verze v kódu pořád 2.0.0-alpha.4, versionCode 4)
 build neproběhl (v prostředí není android sdk ani gradle, pokus se neopakoval), na telefonu netestováno. ověřeno jen skriptem: všechny R.string klíče v kódu existují, cs a en mají shodných 291 klíčů, závorky ve zdrojích sedí (to není build).
 hotovo v kódu:
 - nastavení: hlavní stránka už byla stručný rozcestník devíti podstránek (zařízení, připojení, vzhled, schránka, přenosy, oznámení, soukromí, diagnostika, o aplikaci); nově u schránky ukazuje zapnuto / vypnuto podle skutečného stavu. nic dalšího nepřidáno, žádné nové přepínače
@@ -82,7 +139,7 @@ NENÍ ověřeno: překlad kódu, vzhled panelu a stránky vzhledu na zařízení
 NENÍ hotovo / záměrně odloženo: poslat přes nfc telefon-telefon, přenos obrazovky (potřebuje pc), kontrola release podpisu, nové widgety, interaktivní oznámení; zjištěno a nezměněno: existující bezpečnostní kontroly (pinning certifikátu, potvrzení při párování) jsem v tomto celku nerozšiřoval a nevytvářel jsem varování k nim; potvrzení doručení u schránky protokol nemá
 další krok: blok a (verze 2.2.2 a versionCode, ověření opravy dev vs. dev.proxylink v ShareConfirmScreen, texty oznámení a chyb z Link.kt v angličtině), potom oznámení
 
-## blok 3: branding a kompaktní ui, část 1 (verze v kódu pořád 2.0.0-alpha.4, versionCode 4) - aktuální úkol
+## blok 3: branding a kompaktní ui, část 1 (verze v kódu pořád 2.0.0-alpha.4, versionCode 4)
 ověřeno čtením kódu a přepočtem skriptem (ne buildem): ProxyLogo.kt, ic_launcher_foreground(.xml / _navy_orange) a ic_launcher_mono odpovídají branding/proxylink-icon-source.svg (cesty, oblouky, stroke 5,5, spojka, rx 30; launcher a mono jsou zmenšené 0,72 kolem středu, glyf v bezpečné zóně). launcher ikona, systémová monochromatická ikona a logo v aplikaci jsou oddělené vrstvy; palety mění jen barvy.
 hotovo v kódu (build neproběhl, na telefonu netestováno):
 - kontrast loga paleta paper: logoLine 1D4ED8 na dlaždici 1E293B měl 2,18:1, nově 60A5FA = 5,8:1 (jen barva, symbol beze změny; kontrast počítán skriptem)
@@ -95,7 +152,7 @@ NENÍ ověřeno: překlad (sdk ani gradle v prostředí nejsou), vzhled na zař�
 NENÍ hotovo z bloku 3: kompaktnější mezery, ikony a dialogy po obrazovkách, sjednocené prázdné / chybové / načítací stavy, kontrola kontrastu okrajů paper vs. brand a navyOrange (outline ~1,5:1), tmavé okno při startu ve světlé paletě, ikony launcheru pro další palety
 další krok: zbytek bloku 3 (kompaktní mezery a dialogy), potom blok a (verze 2.2.2, ověření ShareConfirmScreen dev vs. dev.proxylink) a panel rychlých akcí
 
-## přenosy: náhledy, konflikt názvu, otevření po přijetí (verze 2.0.0-alpha.4) - aktuální úkol
+## přenosy: náhledy, konflikt názvu, otevření po přijetí (verze 2.0.0-alpha.4)
 zjištěno z kódu: miniatury přijatých a odeslaných obrázků v historii už existovaly (HistoryRow, loadThumbnail). hotovo v kódu (build neproběhl, na telefonu netestováno):
 - náhled sdíleného obrázku v potvrzovacím okně sdílení androidu (ShareConfirmScreen, UriThumb): miniatura prvního obrázku z uri, dokud platí oprávnění; nic se neukládá
 - náhled přijatého obrázku v oznámení (BigPicture přes systémovou miniaturu), ostatní oznámení beze změny
@@ -106,7 +163,7 @@ NENÍ hotovo / odloženo (závisí na pc): náhled obrázku PŘED přijetím v d
 NENÍ ověřeno: překlad, loadThumbnail pro uri ze sdílení (část aplikací dává uri, pro které miniatura selže; použije se zmenšené dekódování, jinak se náhled nezobrazí), otevření souboru za běhu, název s číslem na zařízení
 
 
-## widgety (verze 2.0.0-alpha.3) - aktuální úkol
+## widgety (verze 2.0.0-alpha.3)
 hotovo v kódu (build neproběhl, na telefonu netestováno; nové widgety se musí na plochu přidat ručně přes seznam widgetů):
 - widget "ProxyLink akce" (3 buňky): soubor / fotka / schránka. soubor a fotka otevřou jen systémový výběr (WidgetSendActivity); odešle se to, co uživatel vybere, bez připojení se výběr vůbec neotevře a ukáže se důvod; fotka jde přes stávající Link.sendImage (respektuje kvalitu obrázků), soubor přes Link.sendFile, schránka přes stávající ClipSendActivity. tlačítko schránky z widgetu zmizí, když je schránka v nastavení vypnutá, a vrátí se po zapnutí (widgety se překreslí při změně přepínače)
 - widget "ProxyLink stav": název pc a stav (připojeno / hostovské spojení / připojování / nepřipojeno), klepnutí otevře aplikaci. stav se čte přímo z Link; překresluje se při každé změně stavu spojení a nejvýš po 30 min systémem. proces zabitý systémem se projeví jako "nepřipojeno", nikdy jako odhad "připojeno"
@@ -117,7 +174,7 @@ NENÍ ověřeno: překlad, zobrazení v launcheru, barvy ve světlé paletě, ch
 NENÍ hotovo: konfigurační obrazovka widgetu, výběr cílového zařízení ve widgetu (odesílá se na aktuální spojení), aktualizace barev dynamických barev po změně světlý/tmavý systém bez další změny
 
 
-## sjednocená verze 2.0.0-alpha.2 (versionCode 2) - aktuální stav
+## sjednocená verze 2.0.0-alpha.2 (versionCode 2)
 - předáváno jako jediný kořen proxy-link/ (proxylink-android, proxylink-pc beze změny, .github, .gitignore, README, proxylink-android/branding/proxylink-icon-source.svg, tyto dva soubory). žádné vnořené ani staré kopie ve výsledku; verzi jsem navýšil, aby šla v "o aplikaci" poznat nová instalace od staré
 - zkontrolováno ve zdrojích: všechny dosud popsané změny jsou v kódu a každá je z ui nebo z manifestu skutečně volána (palety v seznamu vzhledu, FontStore v Theme, Capabilities v tlačítkách, limity historie v nastavení, ShareConfirm v ShareActivity, zkratky z Link, nfc a skener ve sdílení a navigaci). zkontrolováno jen čtením a skriptem, ne překladem
 - build: android sdk ani gradle v prostředí nejsou, pokusy se neopakovaly; apk nový není. postup na windows:
@@ -130,7 +187,7 @@ NENÍ hotovo: konfigurační obrazovka widgetu, výběr cílového zařízení v
 
 soubor vznikl až v tomto kroku; dřívější PROJECT_STATUS.md ani FEATURE_PLAN.md v repozitáři (main, 1 commit) neexistovaly.
 
-## nfc obrazovka (blok 8) dodělána + nfc/qr v okně sdílení androidu (blok 5) - aktuální úkol
+## nfc obrazovka (blok 8) dodělána + nfc/qr v okně sdílení androidu (blok 5)
 hotovo v kódu (build neproběhl, na telefonu netestováno):
 - rozpor textu a funkce vyřešen konstantou NFC_PHONE_TO_PHONE = false v NfcScreen.kt (jako PHONE_QR_SUPPORTED ve skeneru). dokud aplikace neumí spojení dvou telefonů přes nfc (nemá emulaci karty ani transport telefon-telefon), obrazovka říká pravdu: "přiložte telefon ke štítku" / "přibližte zadní stranu telefonu ke štítku" (en: hold the phone to a pairing tag). požadované znění "přiložte telefony k sobě" / "přibližte zadní strany telefonů k sobě" je v resources připravené a zobrazí se po přepnutí konstanty na true spolu s podporou. poznámka o omezení pod tlačítky se pak skryje
 - okno sdílení androidu (ShareConfirm): pokud cílové pc není připojeno, nabízí se v panelu cíle "připojit", "připojit přes nfc" (jen když telefon má nfc čip; zapnutí nfc řeší samotná obrazovka) a "naskenovat qr kód". nfc obrazovka i skener se otevřou přímo v tomto okně nad sdíleným obsahem, takže obsah, vybraný cíl a souhlas s odesláním zůstávají; po připojení se vrátí list s tlačítkem "odeslat". zpětné gesto z nfc/qr vrací na list, ne ke zrušení sdílení. nfc dál jen zahajuje párování, soubory jdou přes síť a pc; pc se nemění

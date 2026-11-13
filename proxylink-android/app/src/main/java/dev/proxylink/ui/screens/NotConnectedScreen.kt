@@ -80,7 +80,7 @@ fun NotConnectedScreen(onScan: () -> Unit, onNfc: () -> Unit) {
                 style = MaterialTheme.typography.titleMedium,
             )
             if (Link.pairError) {
-                Text(stringResource(R.string.nc_pair_failed), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                StateNote(stringResource(R.string.nc_pair_failed), NoteKind.ERROR)
             }
         }
 
@@ -105,14 +105,13 @@ fun NotConnectedScreen(onScan: () -> Unit, onNfc: () -> Unit) {
                 val searching = Link.reconnecting == d.id
                 Panel {
                     Text(d.name, style = MaterialTheme.typography.titleMedium)
-                    Text(
+                    StateNote(
                         when {
                             searching -> stringResource(R.string.nc_searching)
                             inRange -> stringResource(R.string.nc_in_range)
                             else -> stringResource(R.string.nc_not_in_range)
                         },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        if (searching) NoteKind.LOADING else NoteKind.EMPTY,
                     )
                     Spacer(Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

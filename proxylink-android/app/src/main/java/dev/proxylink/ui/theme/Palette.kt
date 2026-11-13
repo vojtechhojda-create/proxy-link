@@ -302,7 +302,63 @@ object Palettes {
         ),
     )
 
-    val all = listOf(brand, navyOrange, graphite, forest, plum, paper)
+    // the four palettes below are built from a few seed colors (contrast of text, muted text, accent and outline checked
+    // against the surfaces, see PROJECT_STATUS.md); the first six above keep their hand tuned schemes
+    private fun c(v: Long) = Color(0xFF000000 or v)
+
+    private fun seeded(
+        dark: Boolean, bg: Long, surface: Long, text: Long, muted: Long, accent: Long, onAccent: Long,
+        outline: Long, secondary: Long, tertiary: Long,
+    ): ColorScheme {
+        val s = c(surface); val t = c(text); val a = c(accent)
+        fun level(x: Float) = androidx.compose.ui.graphics.lerp(s, t, x)
+        val accentBox = androidx.compose.ui.graphics.lerp(c(bg), a, if (dark) 0.28f else 0.16f)
+        val onBox = if (dark) c(text) else androidx.compose.ui.graphics.lerp(a, Color.Black, 0.45f)
+        val base = if (dark) darkColorScheme() else lightColorScheme()
+        return base.copy(
+            background = c(bg), onBackground = t, surface = s, onSurface = t,
+            surfaceVariant = level(0.10f), onSurfaceVariant = c(muted),
+            surfaceTint = a, surfaceDim = c(bg), surfaceBright = level(0.12f),
+            surfaceContainerLowest = if (dark) androidx.compose.ui.graphics.lerp(c(bg), Color.Black, 0.3f) else Color.White,
+            surfaceContainerLow = level(0.03f), surfaceContainer = level(0.05f),
+            surfaceContainerHigh = level(0.08f), surfaceContainerHighest = level(0.11f),
+            outline = c(outline), outlineVariant = level(0.16f),
+            primary = a, onPrimary = c(onAccent), primaryContainer = accentBox, onPrimaryContainer = onBox,
+            inversePrimary = a, secondary = c(secondary), onSecondary = if (dark) Color.Black else Color.White,
+            secondaryContainer = androidx.compose.ui.graphics.lerp(c(bg), c(secondary), 0.2f), onSecondaryContainer = onBox,
+            tertiary = c(tertiary), onTertiary = if (dark) Color.Black else Color.White,
+            tertiaryContainer = androidx.compose.ui.graphics.lerp(c(bg), c(tertiary), 0.2f), onTertiaryContainer = onBox,
+            error = if (dark) c(0xEF4444) else c(0xB91C1C), onError = if (dark) c(0x450A0A) else Color.White,
+            errorContainer = if (dark) c(0x7F1D1D) else c(0xFEE2E2), onErrorContainer = if (dark) c(0xFEE2E2) else c(0x7F1D1D),
+            inverseSurface = t, inverseOnSurface = s, scrim = Color.Black,
+        )
+    }
+
+    // dark: deep teal
+    val ocean = Palette(
+        name = "ocean", label = "ocean", logoTile = c(0x0E2229), logoLine = c(0x2DD4BF),
+        scheme = seeded(true, 0x07161C, 0x0E2229, 0xE6F1F3, 0x8FB0B8, 0x2DD4BF, 0x042F2E, 0x5C8089, 0x38BDF8, 0xFBBF24),
+    )
+
+    // light: the brand colors on a cool white, the logo keeps its dark tile and green line
+    val brandLight = Palette(
+        name = "brandLight", label = "brand light", logoTile = c(0x111827), logoLine = c(0x22C55E), dark = false,
+        scheme = seeded(false, 0xF4F6F8, 0xFFFFFF, 0x111827, 0x4B5563, 0x15803D, 0xFFFFFF, 0x6B7280, 0x0369A1, 0xB45309),
+    )
+
+    // light: warm paper with an amber accent
+    val sand = Palette(
+        name = "sand", label = "sand", logoTile = c(0x2B2118), logoLine = c(0xFBBF24), dark = false,
+        scheme = seeded(false, 0xFAF5EC, 0xFFFFFF, 0x2B2118, 0x5F5446, 0xB45309, 0xFFFFFF, 0x857868, 0x0F766E, 0x6D28D9),
+    )
+
+    // light: pale green with a teal accent
+    val mint = Palette(
+        name = "mint", label = "mint", logoTile = c(0x0F2A27), logoLine = c(0x2DD4BF), dark = false,
+        scheme = seeded(false, 0xEEF8F4, 0xFFFFFF, 0x0F2A27, 0x3F5F5A, 0x0F766E, 0xFFFFFF, 0x6B8A85, 0x1D4ED8, 0xB45309),
+    )
+
+    val all = listOf(brand, navyOrange, graphite, forest, plum, ocean, paper, brandLight, sand, mint)
 }
 
 // global palette state, persisted through Prefs. dynamic = material you (system colors)

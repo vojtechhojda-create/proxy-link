@@ -26,7 +26,16 @@ function render(s) {
   const dv = $('devices')
   dv.textContent = ''
   if (!s.devices.length) el(dv, 'muted', 'none connected')
-  s.devices.forEach(d => el(dv, 'item', d.name + (d.guest ? ' · guest' : d.trusted ? ' · paired' : ' · unpaired')))
+  s.devices.forEach(d => {
+    el(dv, 'item', d.name + (d.guest ? ' · guest' : d.trusted ? ' · paired' : ' · unpaired') + (d.app ? ' · app ' + d.app : ''))
+    // the state of the versions in words; the protocol numbers are in the details only
+    const note = d.compat === 'update-mobile' ? 'requires a mobile update, nothing is sent to or accepted from this device'
+      : d.compat === 'update-pc' ? 'requires a pc update for the newest features, basic transfers work'
+      : d.compat === 'unknown' ? 'version not announced, basic transfers only'
+      : ''
+    if (note) el(dv, 'muted', note)
+  })
+  $('ver').textContent = s.version ? 'pc app ' + s.version + ' · protocol ' + s.protocol : 'protocol ' + s.protocol
 
   const tr = $('transfers')
   tr.textContent = ''

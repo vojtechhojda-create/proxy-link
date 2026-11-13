@@ -59,6 +59,20 @@ class Prefs(ctx: Context) {
         get() = sp.getBoolean("notifhide", true)
         set(v) = sp.edit().putBoolean("notifhide", v).apply()
 
+    // visual preferences (reset by "restore default look"): text size in percent, density, element size, monospace font
+    var textScale: Int
+        get() = sp.getInt("textscale", 100)
+        set(v) = sp.edit().putInt("textscale", v).apply()
+    var uiDensity: String
+        get() = sp.getString("uidensity", null) ?: "default"
+        set(v) = sp.edit().putString("uidensity", v).apply()
+    var elementSize: String
+        get() = sp.getString("elemsize", null) ?: "default"
+        set(v) = sp.edit().putString("elemsize", v).apply()
+    var monoFont: String
+        get() = sp.getString("monofont", null) ?: "bundled"
+        set(v) = sp.edit().putString("monofont", v).apply()
+
     var dynamicColor: Boolean
         get() = sp.getBoolean("dynamic", false)
         set(v) = sp.edit().putBoolean("dynamic", v).apply()

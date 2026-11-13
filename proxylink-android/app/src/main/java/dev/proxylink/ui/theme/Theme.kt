@@ -14,6 +14,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
@@ -59,7 +60,13 @@ fun ProxylinkTheme(content: @Composable () -> Unit) {
         }
     }
 
-    CompositionLocalProvider(LocalLogoColors provides logo) {
+    // element size scales dp; the font scale is divided by it, so text stays exactly as large as the text size setting says
+    val base = LocalDensity.current
+    val e = UiStore.size.scale
+    val density = remember(base, e, UiStore.textScale) {
+        androidx.compose.ui.unit.Density(base.density * e, base.fontScale * (UiStore.textScale / 100f) / e)
+    }
+    CompositionLocalProvider(LocalLogoColors provides logo, LocalDensity provides density) {
         val font = FontStore.current
         val typography = remember(font) { font.pair().let { proxyTypography(it.heading, it.body) } }
         val shapes = remember(ShapeStore.current) { proxyShapes(ShapeStore.current) }

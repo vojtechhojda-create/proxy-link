@@ -37,6 +37,7 @@ import androidx.compose.ui.res.stringResource
 import dev.proxylink.LinkService
 import dev.proxylink.R
 import dev.proxylink.core.Capabilities
+import dev.proxylink.core.Compat
 import dev.proxylink.core.Feature
 import dev.proxylink.core.ImageOptimizer
 import kotlinx.coroutines.delay
@@ -64,7 +65,10 @@ fun SettingsSection(section: String, onBack: () -> Unit, onScan: () -> Unit, onO
     when (section) {
         "devices" -> DevicesSection(onBack, onScan)
         "connection" -> ConnectionSection(onBack)
-        "appearance" -> AppearanceSection(onBack)
+        "appearance" -> AppearanceHub(onBack, onOpen)
+        "appearance_theme" -> ThemeSection(onBack)
+        "appearance_font" -> FontSection(onBack)
+        "appearance_ui" -> InterfaceSection(onBack)
         "clipboard" -> ClipboardSection(onBack)
         "transfers" -> TransfersSection(onBack)
         "notifications" -> NotificationsSection(onBack)
@@ -83,7 +87,7 @@ private fun DevicesSection(onBack: () -> Unit, onScan: () -> Unit) {
 
     SubScreen(stringResource(R.string.title_devices), onBack) {
         if (Link.known.isEmpty()) {
-            Text(stringResource(R.string.no_paired_devices), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            StateNote(stringResource(R.string.no_paired_devices))
         }
         Link.known.forEach { d ->
             val expanded = open == d.id
@@ -106,12 +110,12 @@ private fun DevicesSection(onBack: () -> Unit, onScan: () -> Unit) {
                         Text(d.id, style = MonoStyle, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (Link.lastAttempt > 0 && Link.lastAttemptId == d.id) {
                             Text(
-                                stringResource(R.string.last_attempt, DateUtils.formatDateTime(ctx, Link.lastAttempt, DateUtils.FORMAT_SHOW_TIME)) +
-                                    (Link.lastError?.let { ": " + linkErrorText(it) } ?: ""),
+                                stringResource(R.string.last_attempt, DateUtils.formatDateTime(ctx, Link.lastAttempt, DateUtils.FORMAT_SHOW_TIME)),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(top = 4.dp),
                             )
+                            Link.lastError?.let { StateNote(linkErrorText(it), NoteKind.ERROR) }
                         }
                         SwitchRow(stringResource(R.string.preferred_device), stringResource(R.string.preferred_device_desc), Link.preferred == d.id) {
                             Link.setPreferredDevice(if (it) d.id else null)
@@ -186,173 +190,6 @@ private fun ConnectionSection(onBack: () -> Unit) {
                 AppOutlinedButton(onClick = { Hotspot.stop() }) { Text(stringResource(R.string.stop_hotspot)) }
             }
             Hotspot.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-        }
-    }
-}
-
-@Composable
-private fun AppearanceSection(onBack: () -> Unit) {
-    val ctx = LocalContext.current
-    var iconByPalette by remember { mutableStateOf(Link.prefs.paletteIcon) }
-    var confirmReset by remember { mutableStateOf(false) }
-    fun syncIcon() = LauncherIcon.apply(ctx, Link.prefs.paletteIcon, Link.prefs.palette, Link.prefs.dynamicColor)
-
-    SubScreen(stringResource(R.string.title_appearance), onBack) {
-        SectionTitle(stringResource(R.string.look_colors))
-        Palettes.all.forEach { p ->
-            PaletteOption(p, selected = !PaletteStore.dynamic && PaletteStore.current.name == p.name) {
-                PaletteStore.select(p)
-                Link.prefs.palette = p.name
-                Link.prefs.dynamicColor = false
-                dev.proxylink.Widgets.updateAll(ctx)
-                syncIcon()
-            }
-        }
-        // material you: colors from the wallpaper, follows the system light / dark setting
-        SelectableCard(selected = PaletteStore.dynamic, onClick = {
-            PaletteStore.useSystem()
-            Link.prefs.dynamicColor = true
-            dev.proxylink.Widgets.updateAll(ctx)
-            syncIcon()
-        }) {
-            Text(stringResource(R.string.system_colors), style = MaterialTheme.typography.titleMedium)
-            Text(
-                stringResource(R.string.system_colors_desc),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        SectionTitle(stringResource(R.string.look_icon))
-        Panel {
-            SwitchRow(
-                stringResource(R.string.icon_by_palette),
-                stringResource(R.string.icon_by_palette_desc),
-                iconByPalette,
-            ) {
-                iconByPalette = it
-                Link.prefs.paletteIcon = it
-                syncIcon()
-            }
-            // a palette without its own launcher icon is not hidden behind a switch that seems to do something
-            if (iconByPalette && (PaletteStore.dynamic || !LauncherIcon.hasOwn(PaletteStore.current.name))) {
-                Text(
-                    stringResource(R.string.icon_fallback),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        FontOptions()
-        ShapeOptions()
-        // only visual choices: palette, font, corners, icon by palette. devices, history and security stay as they are
-        AppOutlinedButton(onClick = { confirmReset = true }, modifier = Modifier.fillMaxWidth()) {
-            Text(stringResource(R.string.reset_look))
-        }
-    }
-
-    if (confirmReset) {
-        AlertDialog(
-            onDismissRequest = { confirmReset = false },
-            title = { Text(stringResource(R.string.reset_look_title)) },
-            text = { Text(stringResource(R.string.reset_look_text)) },
-            confirmButton = {
-                TextButton(onClick = {
-                    PaletteStore.select(Palettes.brand); Link.prefs.palette = Palettes.brand.name; Link.prefs.dynamicColor = false
-                    FontStore.load("default"); Link.prefs.font = "default"
-                    ShapeStore.load("default"); Link.prefs.shape = "default"
-                    iconByPalette = false; Link.prefs.paletteIcon = false
-                    dev.proxylink.Widgets.updateAll(ctx)
-                    syncIcon()
-                    confirmReset = false
-                }) { Text(stringResource(R.string.reset_look_confirm)) }
-            },
-            dismissButton = { TextButton(onClick = { confirmReset = false }) { Text(stringResource(R.string.cancel)) } },
-        )
-    }
-}
-
-// corner style with a small preview (panel, button, dialog) drawn with that style's own radii. applies at once through the theme
-@Composable
-private fun ShapeOptions() {
-    SectionTitle(stringResource(R.string.shape_title))
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        ShapeStyle.entries.forEach { st ->
-            val selected = ShapeStore.current == st
-            Card(
-                shape = MaterialTheme.shapes.medium,
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-                border = BorderStroke(if (selected) 2.dp else 1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
-                modifier = Modifier.weight(1f).selectable(selected = selected, role = Role.RadioButton) { ShapeStore.select(st); Link.prefs.shape = st.key },
-            ) {
-                Column(Modifier.padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    // panel, button and dialog drawn with this style's own radii
-                    val line = MaterialTheme.colorScheme.outline
-                    Box(Modifier.fillMaxWidth().height(22.dp).border(1.dp, line, RoundedCornerShape(st.m.dp)))
-                    Box(Modifier.fillMaxWidth(0.7f).height(16.dp).background(MaterialTheme.colorScheme.primary, RoundedCornerShape(st.s.dp)))
-                    Box(Modifier.fillMaxWidth().height(22.dp).background(MaterialTheme.colorScheme.surfaceContainerHighest, RoundedCornerShape(st.xl.dp)).border(1.dp, line, RoundedCornerShape(st.xl.dp)))
-                    Text(
-                        stringResource(when (st) { ShapeStyle.SQUARE -> R.string.shape_square; ShapeStyle.DEFAULT -> R.string.shape_default; ShapeStyle.ROUND -> R.string.shape_round }),
-                        style = MaterialTheme.typography.labelMedium,
-                    )
-                }
-            }
-        }
-    }
-    Text(
-        stringResource(R.string.shape_note),
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-}
-
-// main ui font with a live preview in each font. the choice applies at once and is saved in Prefs
-@Composable
-private fun FontOptions() {
-    SectionTitle(stringResource(R.string.font_title))
-    AppFont.entries.forEach { f ->
-        val pair = f.pair()
-        SelectableCard(selected = FontStore.current == f, onClick = { FontStore.select(f); Link.prefs.font = f.key }) {
-            Text(
-                if (f == AppFont.SYSTEM) stringResource(R.string.font_system) else f.label,
-                style = MaterialTheme.typography.titleMedium.copy(fontFamily = pair.heading),
-            )
-            Text(
-                stringResource(R.string.font_preview),
-                style = MaterialTheme.typography.bodyMedium.copy(fontFamily = pair.body),
-                modifier = Modifier.padding(top = 4.dp),
-            )
-        }
-    }
-    Text(
-        stringResource(R.string.font_note),
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-}
-
-@Composable
-private fun SelectableCard(selected: Boolean, onClick: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
-    Card(
-        shape = MaterialTheme.shapes.medium,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-        border = BorderStroke(
-            if (selected) 2.dp else 1.dp,
-            if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
-        ),
-        modifier = Modifier.fillMaxWidth().selectable(selected = selected, role = Role.RadioButton, onClick = onClick),
-    ) { Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), content = content) }
-}
-
-@Composable
-private fun PaletteOption(p: Palette, selected: Boolean, onClick: () -> Unit) {
-    SelectableCard(selected, onClick) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(p.label, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                listOf(p.scheme.background, p.scheme.surfaceContainerHigh, p.scheme.primary, p.scheme.secondary, p.scheme.tertiary).forEach { c ->
-                    Box(Modifier.size(width = 20.dp, height = 16.dp).background(c, MaterialTheme.shapes.extraSmall).border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.extraSmall))
-                }
-            }
         }
     }
 }
@@ -690,6 +527,9 @@ private fun DiagnosticsSection(onBack: () -> Unit) {
         "proxylink $version",
         "android ${android.os.Build.VERSION.RELEASE} (sdk ${android.os.Build.VERSION.SDK_INT})",
         "link state: ${Link.state}",
+        "protocol: app ${Capabilities.MOBILE_PROTOCOL}, peer ${Capabilities.protocol}, peer app ${Capabilities.peerApp ?: "not announced"}",
+        "compatibility: ${Capabilities.compat}",
+        "peer features: ${Feature.entries.filter { Capabilities.supports(it) }.joinToString { it.key }.ifEmpty { "none" }}",
         "searching for a paired device: ${Link.reconnecting != null}",
         "last connect attempt: ${if (Link.lastAttempt > 0) DateUtils.formatDateTime(ctx, Link.lastAttempt, DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_SHOW_TIME or DateUtils.FORMAT_ABBREV_ALL) else "none"}",
         "last connect error: ${Link.lastError ?: "none"}",
@@ -738,6 +578,8 @@ private fun AboutSection(onBack: () -> Unit, onOpen: (String) -> Unit) {
             Text(version, style = MonoStyle, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(stringResource(R.string.by_author), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+        SectionTitle(stringResource(R.string.ver_title))
+        VersionPanel(version)
         Panel {
             Text(stringResource(R.string.stays_on_devices), style = MaterialTheme.typography.bodyLarge)
             Text(
@@ -838,3 +680,54 @@ private fun linkErrorText(e: String): String = stringResource(
         else -> R.string.err_lost
     },
 )
+
+// versions of both sides, what the pc announced and what that means. version, announced features and the state of the link are
+// shown apart: a version or feature is never shown as confirmed unless the peer announced it
+@Composable
+private fun VersionPanel(version: String) {
+    val connected = Link.state == LinkState.CONNECTED
+    val compat = Capabilities.compat
+    Panel {
+        Row {
+            Text(stringResource(R.string.ver_mobile), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+            Text("$version · v${Capabilities.MOBILE_PROTOCOL}", style = MonoStyle)
+        }
+        Row {
+            Text(stringResource(R.string.ver_pc), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+            Text(
+                if (!connected) stringResource(R.string.ver_unknown)
+                else (Capabilities.peerApp ?: stringResource(R.string.ver_app_not_announced)) +
+                    (if (Capabilities.protocol > 0) " · v${Capabilities.protocol}" else ""),
+                style = MonoStyle,
+            )
+        }
+        // the state of the compatibility, in words
+        StateNote(
+            stringResource(
+                if (!connected) R.string.compat_not_connected
+                else when (compat) {
+                    Compat.UNKNOWN -> R.string.compat_unknown
+                    Compat.IDENTICAL -> R.string.compat_identical
+                    Compat.PC_NEWER -> R.string.compat_pc_newer
+                    Compat.PC_OLDER -> R.string.compat_pc_older
+                    Compat.PC_TOO_OLD -> R.string.compat_pc_too_old
+                    Compat.MOBILE_TOO_OLD -> R.string.compat_mobile_too_old
+                },
+            ),
+            if (connected && (compat == Compat.PC_TOO_OLD || compat == Compat.MOBILE_TOO_OLD)) NoteKind.ERROR else NoteKind.EMPTY,
+        )
+        if (connected) {
+            listOf(Feature.TEXT to R.string.feat_text, Feature.FILES to R.string.feat_files, Feature.CLIPBOARD to R.string.feat_clipboard).forEach { (f, name) ->
+                Row {
+                    Text(stringResource(name), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                    Text(
+                        stringResource(if (Capabilities.supports(f)) R.string.feat_supported else R.string.feat_needs_update),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (Capabilities.supports(f)) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        }
+        Text(stringResource(R.string.ver_note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}

@@ -193,7 +193,7 @@ fun ShareConfirm(uris: List<Uri>, text: String?, shortcutId: String?, onDone: ()
                     }
                 }
                 if (k == null) {
-                    Text(stringResource(R.string.share_no_paired), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    StateNote(stringResource(R.string.share_no_paired))
                 }
 
                 // why the send button is dimmed when the target itself is connected: the pc lacks the feature

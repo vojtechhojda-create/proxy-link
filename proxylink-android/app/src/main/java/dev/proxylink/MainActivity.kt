@@ -20,6 +20,7 @@ import dev.proxylink.ui.components.PairLinkDialog
 import dev.proxylink.ui.nav.ProxylinkApp
 import dev.proxylink.ui.theme.FontStore
 import dev.proxylink.ui.theme.ShapeStore
+import dev.proxylink.ui.theme.UiStore
 import dev.proxylink.ui.theme.PaletteStore
 import dev.proxylink.ui.theme.ProxylinkTheme
 
@@ -33,6 +34,7 @@ class MainActivity : ComponentActivity() {
         PaletteStore.load(Link.prefs.palette, Link.prefs.dynamicColor)
         FontStore.load(Link.prefs.font)
         ShapeStore.load(Link.prefs.shape)
+        UiStore.load(Link.prefs, this)
         // keeps exactly one launcher entry enabled and in line with the saved choice
         LauncherIcon.apply(this, Link.prefs.paletteIcon, Link.prefs.palette, Link.prefs.dynamicColor)
         enableEdgeToEdge(

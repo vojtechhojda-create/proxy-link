@@ -12,6 +12,14 @@ import { basename, extname, join } from 'node:path'
 
 const MAX_FILE = 4_000_000_000
 const MAX_TEXT = 100_000
+
+// versions: PROTOCOL is what this pc speaks, MIN_MOBILE_PROTOCOL the lowest mobile protocol that still gets the basic transfers.
+// the hello message announces them with the app version and the features (caps). a phone that announces nothing is an older app:
+// it is not blocked, its basic transfers keep working. a phone that announces a protocol below the minimum gets no transfers
+export const PROTOCOL = 2
+export const MIN_MOBILE_PROTOCOL = 2
+const PC_CAPS = ['text', 'files', 'clipboard']
+export type Compat = 'ok' | 'unknown' | 'update-mobile' | 'update-pc'
 const CHUNK = 65_536
 const SID = /^[0-9a-f-]{36}$/i
 const MIME: Record<string, string> = {
@@ -63,15 +71,16 @@ function uniquePath(dir: string, name: string) {
 
 export type TStatus = 'waiting' | 'active' | 'done' | 'failed' | 'denied'
 export interface Transfer { sid: string; name: string; size: number; bytes: number; outgoing: boolean; status: TStatus; device: string }
-export interface Device { id: string; name: string; trusted: boolean; guest: boolean }
+export interface Device { id: string; name: string; trusted: boolean; guest: boolean; app?: string; proto?: number; compat: Compat }
 export interface ServerState {
-  id: string; name: string; code: string; acceptStrangers: boolean
+  id: string; name: string; code: string; acceptStrangers: boolean; version: string; protocol: number
   devices: Device[]; transfers: Transfer[]; downloadDir: string
   fingerprint: string; ips: string[]; ip: string; pairUri: string; guestUri: string
 }
 export interface Clip { read(): Promise<string>; write(t: string): Promise<void> }
 export interface Opts {
   name: string
+  version?: string
   dataDir: string
   downloadDir: string
   clip: Clip
@@ -86,6 +95,7 @@ interface Persist { id: string; paired: Record<string, { name: string; secret: s
 interface InFile { stream: WriteStream; hash: Hash; bytes: number; size: number; path: string; tr: Transfer }
 interface Sess {
   ws: WebSocket; nonce: string; id?: string; name?: string; trusted: boolean; guest?: boolean
+  proto?: number; app?: string; caps?: string[]   // what the phone announced in hello; undefined = not announced
   allowed: Set<string>; files: Map<string, InFile>
 }
 interface OutFile { path: string; name: string; size: number; tr: Transfer; sess: Sess }
@@ -116,6 +126,13 @@ export function createServer(opts: Opts) {
   const routes = new Map<string, { a: Sess; b: Sess }>()   // phone -> pc -> phone relay, by sid
 
   const sessions = new Set<Sess>()
+
+  const compatOf = (s: Sess): Compat =>
+    s.proto === undefined ? 'unknown' : s.proto < MIN_MOBILE_PROTOCOL ? 'update-mobile' : s.proto > PROTOCOL ? 'update-pc' : 'ok'
+  // a phone below the minimum protocol gets nothing and may send nothing. with a features list the phone must list the feature;
+  // without one (older app) the basic features are assumed, as they were before versions existed
+  const usable = (s: Sess) => compatOf(s) !== 'update-mobile'
+  const canDo = (s: Sess, feature: string) => usable(s) && (s.caps === undefined || s.caps.includes(feature))
   const transfers: Transfer[] = []
   const outgoing = new Map<string, { kind: string; text: string }>()
   const outFiles = new Map<string, OutFile>()
@@ -127,7 +144,7 @@ export function createServer(opts: Opts) {
     opts.onChange?.()
   }
   const send = (ws: WebSocket, m: object) => { if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(m)) }
-  const broadcast = (m: object) => { for (const s of sessions) if (s.trusted) send(s.ws, m) }
+  const broadcast = (m: object, feature?: string) => { for (const s of sessions) if (s.trusted && (!feature || canDo(s, feature))) send(s.ws, m) }
   const addTransfer = (t: Transfer) => {
     transfers.unshift(t)
     if (transfers.length > 20) transfers.length = 20
@@ -160,7 +177,10 @@ export function createServer(opts: Opts) {
     const sid = randomUUID()
     const kind = /^https?:\/\//.test(text) ? 'link' : 'text'
     outgoing.set(sid, { kind, text })
-    broadcast({ t: 'share.request', sid, kind, name: text.slice(0, 40), size: text.length })
+    for (const s of sessions) {
+      if (s.trusted && !canDo(s, 'text')) opts.log(`${s.name}: requires a mobile update, text not sent`)
+    }
+    broadcast({ t: 'share.request', sid, kind, name: text.slice(0, 40), size: text.length }, 'text')
   }
 
   function sendFile(path: string) {
@@ -170,8 +190,11 @@ export function createServer(opts: Opts) {
       if (!s.isFile()) return opts.log('not a file')
       size = s.size
     } catch { return opts.log(`file not found: ${path}`) }
-    const targets = [...sessions].filter(x => x.trusted)
-    if (!targets.length) return opts.log('no trusted device connected')
+    const trusted = [...sessions].filter(x => x.trusted)
+    if (!trusted.length) return opts.log('no trusted device connected')
+    for (const s of trusted) if (!canDo(s, 'files')) opts.log(`${s.name}: requires a mobile update, file not sent`)
+    const targets = trusted.filter(x => canDo(x, 'files'))
+    if (!targets.length) return
     const name = basename(path)
     for (const s of targets) {
       const sid = randomUUID()
@@ -261,6 +284,10 @@ export function createServer(opts: Opts) {
         if (!id) return
         s.id = id
         s.name = String(m.name ?? 'device').slice(0, 40)
+        // version, app version and features of the phone, validated; anything unexpected counts as not announced
+        s.proto = Number.isInteger(m.v) && m.v >= 0 && m.v <= 1000 ? m.v : undefined
+        s.app = typeof m.app === 'string' && m.app ? m.app.slice(0, 32) : undefined
+        s.caps = Array.isArray(m.caps) ? m.caps.filter((x: unknown) => typeof x === 'string').slice(0, 32).map((x: string) => x.slice(0, 32)) : undefined
         const p = st.paired[id]
         s.trusted = !!(p && typeof m.mac === 'string' && eq(m.mac, mac(p.secret, s.nonce)))
         send(s.ws, { t: 'ready', trusted: s.trusted })
@@ -300,13 +327,14 @@ export function createServer(opts: Opts) {
         const size = Number(m.size)
         const deny = () => send(s.ws, { t: 'share.deny', sid })
         if (!SID.test(sid) || !['text', 'link', 'file'].includes(kind)) return deny()
+        if (!usable(s)) return deny()
         if (!Number.isFinite(size) || size < 0) return deny()
         if (kind === 'file' ? size > MAX_FILE : size > MAX_TEXT) return deny()
         if (m.to !== undefined) {
           // relay to another trusted device (phone -> pc -> phone)
           if (!s.trusted) return deny()
           const t = [...sessions].find(x => x.trusted && x.id === String(m.to) && x !== s)
-          if (!t) return deny()
+          if (!t || !canDo(t, kind === 'file' ? 'files' : 'text')) return deny()
           routes.set(sid, { a: s, b: t })
           send(t.ws, { t: 'share.request', sid, kind, name: m.name, size, mime: m.mime, from: s.name })
           return
@@ -380,7 +408,7 @@ export function createServer(opts: Opts) {
         break
       }
       case 'clip.update': {
-        if (!s.trusted || typeof m.text !== 'string' || m.text.length > MAX_TEXT) return
+        if (!s.trusted || !usable(s) || typeof m.text !== 'string' || m.text.length > MAX_TEXT) return
         const h = sha(m.text)
         if (h === lastHash) return
         lastHash = h
@@ -399,7 +427,7 @@ export function createServer(opts: Opts) {
   wss.on('connection', ws => {
     const s: Sess = { ws, nonce: randomBytes(16).toString('hex'), trusted: false, allowed: new Set(), files: new Map() }
     sessions.add(s)
-    send(ws, { t: 'hello', id: st.id, name: opts.name, v: 2, nonce: s.nonce })
+    send(ws, { t: 'hello', id: st.id, name: opts.name, v: PROTOCOL, app: opts.version, caps: PC_CAPS, min: MIN_MOBILE_PROTOCOL, nonce: s.nonce })
     ws.on('close', () => {
       for (const [sid, f] of [...s.files]) abortFile(s, sid, f, false)
       for (const [sid, f] of [...outFiles]) if (f.sess === s) { outFiles.delete(sid); f.tr.status = 'failed' }
@@ -424,7 +452,7 @@ export function createServer(opts: Opts) {
       const h = sha(t)
       if (t && h !== lastHash) {
         lastHash = h
-        broadcast({ t: 'clip.update', ts: Date.now(), hash: h, text: t.slice(0, MAX_TEXT) })
+        broadcast({ t: 'clip.update', ts: Date.now(), hash: h, text: t.slice(0, MAX_TEXT) }, 'clipboard')
       }
     } catch {}
   }, 800)
@@ -451,7 +479,9 @@ export function createServer(opts: Opts) {
       name: opts.name,
       code,
       acceptStrangers: st.acceptStrangers,
-      devices: [...sessions].filter(s => s.id).map(s => ({ id: s.id!, name: s.name ?? '?', trusted: s.trusted, guest: !!s.guest })),
+      version: opts.version ?? '',
+      protocol: PROTOCOL,
+      devices: [...sessions].filter(s => s.id).map(s => ({ id: s.id!, name: s.name ?? '?', trusted: s.trusted, guest: !!s.guest, app: s.app, proto: s.proto, compat: compatOf(s) })),
       transfers: transfers.map(t => ({ ...t })),
       downloadDir: opts.downloadDir,
       fingerprint: tls.fingerprint,

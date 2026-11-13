@@ -40,7 +40,7 @@ fun ShareScreen() {
             contentPadding = PaddingValues(bottom = 8.dp),
         ) {
             if (shown.isEmpty()) item {
-                Text(stringResource(R.string.nothing_here), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                StateNote(stringResource(R.string.nothing_here))
             }
             items(shown, key = { it.id }) { Box(Modifier.animateItem()) { HistoryRow(it, actions = true) } }
         }

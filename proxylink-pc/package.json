@@ -1,6 +1,6 @@
 {
   "name": "proxylink-pc",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "description": "proxylink pc app",
   "author": "proxylink",
   "main": "dist/main.js",

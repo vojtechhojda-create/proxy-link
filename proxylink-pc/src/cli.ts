@@ -1,15 +1,19 @@
 import clipboardy from 'clipboardy'
 import { createInterface } from 'node:readline'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import os from 'node:os'
 import { createServer } from './server'
 
 const NAME = process.env.PL_NAME ?? os.hostname()
+let VERSION = ''
+try { VERSION = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf8')).version } catch { /* version stays unannounced */ }
 let answer: ((v: string) => void) | null = null
 let lastCode = ''
 
 const srv = createServer({
   name: NAME,
+  version: VERSION || undefined,
   dataDir: process.cwd(),
   downloadDir: join(process.cwd(), 'received'),
   clip: { read: () => clipboardy.read(), write: t => clipboardy.write(t) },

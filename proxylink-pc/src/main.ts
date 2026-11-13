@@ -96,6 +96,7 @@ app.on('before-quit', () => { quitting = true; srv?.close() })
 app.whenReady().then(() => {
   srv = createServer({
     name: os.hostname(),
+    version: app.getVersion(),
     dataDir: app.getPath('userData'),
     downloadDir: join(app.getPath('downloads'), 'proxylink'),
     clip: { read: async () => clipboard.readText(), write: async t => clipboard.writeText(t) },

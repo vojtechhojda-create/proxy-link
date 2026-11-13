@@ -1,6 +1,7 @@
 package dev.proxylink.ui.components
 
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
@@ -13,6 +14,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -20,6 +22,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Alignment
+import dev.proxylink.ui.theme.UiStore
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
@@ -63,7 +66,7 @@ fun Panel(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> 
         shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-    ) { Column(Modifier.padding(16.dp), content = content) }
+    ) { Column(Modifier.padding(UiStore.density.pad.dp), content = content) }
 }
 
 @Composable
@@ -90,7 +93,7 @@ fun ScreenHeader(title: String) {
 fun SubScreen(title: String, onBack: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
     Column(
         Modifier.fillMaxSize().verticalScrollCompat().padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(UiStore.density.gap.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back)) }
@@ -231,7 +234,7 @@ fun TransferRow(t: Transfer) {
         )
         if (t.status == "active" || t.status == "waiting") {
             val f = if (t.size > 0) (t.bytes.toFloat() / t.size).coerceIn(0f, 1f) else 0f
-            val shown by animateFloatAsState(f, tween(150), label = "progress")
+            val shown by animateFloatAsState(f, if (UiStore.animations) tween(150) else snap(), label = "progress")
             LinearProgressIndicator(progress = { shown }, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp))
         }
         Text(
@@ -253,4 +256,20 @@ fun fmtSize(b: Long): String = when {
     b < 1_048_576 -> "%.1f KB".format(b / 1024.0)
     b < 1_073_741_824 -> "%.1f MB".format(b / 1_048_576.0)
     else -> "%.2f GB".format(b / 1_073_741_824.0)
+}
+
+enum class NoteKind { EMPTY, LOADING, ERROR }
+
+// one look for "nothing here", "working" and "something failed". the kind is also told by an icon or a spinner, never by color alone
+@Composable
+fun StateNote(text: String, kind: NoteKind = NoteKind.EMPTY, modifier: Modifier = Modifier) {
+    val color = if (kind == NoteKind.ERROR) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+    Row(modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        when (kind) {
+            NoteKind.LOADING -> CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = color)
+            NoteKind.ERROR -> Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = color, modifier = Modifier.size(18.dp))
+            NoteKind.EMPTY -> {}
+        }
+        Text(text, style = MaterialTheme.typography.bodyMedium, color = color)
+    }
 }

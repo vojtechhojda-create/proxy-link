@@ -86,4 +86,8 @@ fun proxyTypography(heading: FontFamily, body: FontFamily) = Typography(
 val ProxyTypography = proxyTypography(GroteskFamily, InterFamily)
 
 // ids, fingerprints, pairing codes
-val MonoStyle = TextStyle(fontFamily = MonoFamily, fontWeight = FontWeight.Normal, fontSize = 14.sp, lineHeight = 20.sp)
+val MonoStyle: TextStyle
+    get() = TextStyle(
+        fontFamily = if (UiStore.mono == MonoFont.SYSTEM) FontFamily.Monospace else MonoFamily,
+        fontWeight = FontWeight.Normal, fontSize = 14.sp, lineHeight = 20.sp,
+    )
